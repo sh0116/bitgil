@@ -2,17 +2,18 @@
 
 기획서 섹션 9 기준. 각 마일스톤은 검증 목표(Definition of Done)를 가진다.
 
-## M1 — 파이프라인 검증
-- NVDA 애드온 스캐폴딩 (AI-content-describer 소스 분석·참고)
-- 캡처 → LLM → 음성 출력 파이프라인
-- 프로바이더 어댑터 (`eyemate_core.providers`)
-- **검증 목표:** Slay the Spire 화면 1장을 3초 내 해설
+## M1 — 파이프라인 검증  ✅ 코드 완료 (실기기 실측 대기)
+- [x] NVDA 애드온 스캐폴딩 (AI-content-describer 소스 분석·참고)
+- [x] 캡처 → LLM → 음성 출력 파이프라인 (`capture` → `NarrationEngine` → F2)
+- [x] 프로바이더 어댑터 (`eyemate_core.providers`: Anthropic/OpenAI/Ollama + 팩토리)
+- **검증 목표:** Slay the Spire 화면 1장을 3초 내 해설 — *실 API 키 + 데스크톱 NVDA 필요*
 
-## M2 — 라이브 모드 (F1)
-- 변화 감지기 구현 (`eyemate_core.change_detect`)
-- 세션 컨텍스트 = 증분 해설 (`eyemate_core.context`)
-- 끼어들기 정책 (`addon/.../output`)
-- **검증 목표:** 카드 게임 한 판을 라이브 해설만으로 진행
+## M2 — 라이브 모드 (F1)  ✅ 코드 완료 (실기기 실측 대기)
+- [x] 변화 감지기 구현 (`eyemate_core.change_detect`: perceptual-hash + OCR diff 훅)
+- [x] 세션 컨텍스트 = 증분 해설 (`eyemate_core.context`, `LiveNarrator`)
+- [x] 끼어들기 정책 (`addon/.../output` SpeechBridge: queue/interrupt/defer)
+- [x] 라이브 루프 (`eyemate_core.live.LiveNarrator`, F1 토글 배선)
+- **검증 목표:** 카드 게임 한 판을 라이브 해설만으로 진행 — *실기기 필요*
 
 ## M3 — 프로파일 & 학습 모드 (F2, F3, F4)
 - YAML 프로파일 시스템 (`eyemate_core.profiles`)

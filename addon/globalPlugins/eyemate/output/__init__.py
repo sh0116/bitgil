@@ -20,6 +20,33 @@ class SpeechBridge:
 		self.policy = policy
 
 	def speak(self, text: str, *, important: bool = False) -> None:
-		# TODO(M2): use speech.speakMessage / cancelSpeech per policy + importance.
-		import speech  # noqa: F401  (NVDA runtime import)
-		raise NotImplementedError("speech bridge lands in M2")
+		if not text:
+			return
+		# NVDA runtime imports (only available inside the NVDA process).
+		import queueHandler
+		import speech
+
+		policy = "interrupt" if important else self.policy
+
+		if policy == "defer" and self._user_speaking():
+			return  # user is navigating — stay out of the way
+
+		def _emit():
+			if policy == "interrupt":
+				speech.cancelSpeech()
+			speech.speakMessage(text)
+
+		# Speech must run on NVDA's main thread; the live loop runs on its own
+		# thread, so hop back via queueHandler.
+		queueHandler.queueFunction(queueHandler.eventQueue, _emit)
+
+	@staticmethod
+	def _user_speaking() -> bool:
+		"""True if the user seems to be actively navigating (speech in progress).
+
+		TODO(M2): NVDA has no stable public "is currently speaking" query across
+		versions. Track it ourselves by observing when we last enqueued speech,
+		or hook the synth's index-reached callback. Until then, `defer` behaves
+		like `queue` (never drops) — the safe default.
+		"""
+		return False

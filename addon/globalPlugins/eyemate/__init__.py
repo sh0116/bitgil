@@ -32,18 +32,21 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
-		self._live_session = None
-		self._engine = None  # lazily built on first use (see _get_engine)
+		self._engine = None  # lazily built on first use
+		self._profile = None
+		self._narrator = None  # active LiveNarrator, if live mode is on
+		self._live_thread = None
+		self._speech = None
 
 	def terminate(self, *args, **kwargs):
-		# TODO(M2): stop any running live-narration session cleanly.
+		self._stop_live()
 		super().terminate(*args, **kwargs)
 
-	def _get_engine(self):
-		"""Build the NarrationEngine on demand from configuration.
+	def _get_engine_and_profile(self):
+		"""Build the NarrationEngine + its profile on demand from configuration.
 
 		TODO(M3): read provider name / API key / active profile from the NVDA
-		settings panel. For M1 this pulls from eyemate_core defaults so the
+		settings panel. For now this uses eyemate_core defaults so the
 		capture -> LLM -> speech path can be exercised end to end.
 		"""
 		if self._engine is None:
@@ -51,9 +54,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			from .inference import build_engine
 
 			# Placeholder config until the settings panel lands (M3).
-			profile = Profile(name="general", system_prompt="화면을 간결히 설명하세요.")
-			self._engine = build_engine("ollama", {}, profile)
-		return self._engine
+			self._profile = Profile(
+				name="general",
+				system_prompt="화면을 간결히 설명하세요. 이전 해설이 있으면 무엇이 달라졌는지 중심으로 말하세요.",
+			)
+			self._engine = build_engine("ollama", {}, self._profile)
+		return self._engine, self._profile
 
 	# --- F1: Live Narrator ------------------------------------------------
 
@@ -62,9 +68,45 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		gesture="kb:NVDA+shift+e",
 	)
 	def script_toggleLiveNarration(self, gesture):
-		# TODO(M2): start/stop the change-detection -> inference -> speech loop.
 		import ui
-		ui.message("EyeMate: live narration not yet implemented")
+
+		if self._narrator is not None:
+			self._stop_live()
+			ui.message("EyeMate: 라이브 해설 종료")
+			return
+
+		try:
+			import threading
+
+			from eyemate_core.capture import capture_screen
+			from eyemate_core.live import LiveNarrator
+
+			from .inference import build_change_detector
+			from .output import SpeechBridge
+
+			# TODO(M3): read profile/provider/interval from the settings panel.
+			engine, profile = self._get_engine_and_profile()
+			self._speech = SpeechBridge(policy="queue")
+			self._narrator = LiveNarrator(
+				engine=engine,
+				detector=build_change_detector(profile),
+				capture=capture_screen,
+				speak=self._speech.speak,
+				interval=1.5,
+				on_error=lambda e: ui.message(f"EyeMate 오류: {e}"),
+			)
+			self._live_thread = threading.Thread(target=self._narrator.run, daemon=True)
+			self._live_thread.start()
+			ui.message("EyeMate: 라이브 해설 시작")
+		except Exception as e:
+			self._narrator = None
+			ui.message(f"EyeMate 오류: {e}")
+
+	def _stop_live(self):
+		if self._narrator is not None:
+			self._narrator.stop()
+			self._narrator = None
+			self._live_thread = None
 
 	# --- F2: Ask the Screen ----------------------------------------------
 
@@ -84,7 +126,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				from eyemate_core.capture import capture_screen
 
 				frame = capture_screen()
-				narration = self._get_engine().narrate(frame)
+				engine, _ = self._get_engine_and_profile()
+				narration = engine.narrate(frame)
 				ui.message(narration.text)
 			except Exception as e:  # surface failures as speech, never crash NVDA
 				ui.message(f"EyeMate 오류: {e}")
