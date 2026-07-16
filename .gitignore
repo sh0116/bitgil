@@ -18,11 +18,52 @@ env/
 htmlcov/
 .tox/
 
-# Secrets — API keys must never be committed
+# ---------------------------------------------------------------------------
+# SECRETS — API keys / credentials must NEVER be committed.
+# EyeMate uses BYO API Key (OpenAI/Anthropic/Gemini). Keep every real key out.
+# ---------------------------------------------------------------------------
+# allow the non-secret template (.env.example) but block real env files
 .env
+.env.*
+!.env.example
 *.key
+*.pem
+*.pfx
+*.p12
+*.pkcs12
+id_rsa
+id_ed25519
+*.keystore
 secrets.ini
+secrets.yaml
+secrets.yml
+credentials.json
+credentials*.json
+*credentials*
+*.credentials
+token.json
+*.token
+apikey*
+api_key*
+*_secret*
 config.local.*
+settings.local.*
+# NVDA user config may embed provider keys
+nvda-config-backup/
+
+# ---------------------------------------------------------------------------
+# PRIVACY — runtime screen captures & session data contain personal content
+# (game screens, learning material, on-screen text). Never commit them.
+# ---------------------------------------------------------------------------
+captures/
+frames/
+screenshots/
+*.capture.png
+*.frame.png
+session-logs/
+*.session.json
+# exported review/notes may contain screen content
+*.review.md
 
 # Editors / OS
 .vscode/
@@ -30,6 +71,5 @@ config.local.*
 *.swp
 .DS_Store
 
-# Session review notes exported at runtime
-*.review.md
+# Scratch
 /scratch/
