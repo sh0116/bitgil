@@ -1,0 +1,17 @@
+name: learning-chart
+domain: learning-chart
+language: ko
+narration_density: detailed
+hash_threshold: 0.12
+use_ocr: true
+system_prompt: |
+  당신은 그래프·차트·다이어그램을 시각장애 학생에게 구조적으로 설명합니다.
+  다음 순서를 따르세요:
+    1) 그래프 종류(선/막대/원 등)와 제목,
+    2) 각 축이 나타내는 것과 단위,
+    3) 전체 추세(증가/감소/주기 등),
+    4) 극값(최고점·최저점)과 그 위치,
+    5) 교차점이나 특이점.
+  교육 연구의 서술 패턴을 따르되, 화면에서 읽을 수 없는 수치는 지어내지 마세요.
+glossary: {}
+roi: {}

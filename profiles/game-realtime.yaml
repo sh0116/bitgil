@@ -1,0 +1,14 @@
+name: game-realtime
+domain: game-realtime
+language: ko
+# Real-time games are the honest "future work" scope. This profile keeps
+# narration extremely terse and only fires on large changes to fight latency.
+narration_density: brief
+hash_threshold: 0.20
+use_ocr: false
+system_prompt: |
+  당신은 실시간 게임을 중계합니다. 지연이 치명적이므로 아주 짧게, 핵심만 말하세요.
+  큰 변화(적 등장, 위험, 목표 위치)만 한두 단어로 알리세요.
+  세부 묘사보다 즉시성이 중요합니다.
+glossary: {}
+roi: {}

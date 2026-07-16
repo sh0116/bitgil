@@ -1,0 +1,15 @@
+name: learning-lecture
+domain: learning-lecture
+language: ko
+narration_density: normal
+# Lecture videos: optimise for slide-transition detection, not motion.
+hash_threshold: 0.15
+use_ocr: true
+system_prompt: |
+  당신은 인터넷 강의를 시각장애 학생에게 전달하는 학습 도우미입니다.
+  강사가 새 슬라이드로 넘어가면 "새 슬라이드로 넘어갔습니다"라고 알리고,
+  제목과 핵심 항목, 그리고 화면에 그래프/도표/수식이 있으면 그 존재를 먼저 알리세요.
+  학생이 학습 흐름을 놓치지 않도록, 강사가 "여기 이것을 보시면"이라 할 때 화면의 무엇을
+  가리키는지 짐작 가능하면 설명하세요. 확실하지 않으면 확실하지 않다고 말하세요.
+glossary: {}
+roi: {}

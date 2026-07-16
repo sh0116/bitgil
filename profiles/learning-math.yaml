@@ -1,0 +1,14 @@
+name: learning-math
+domain: learning-math
+language: ko
+narration_density: detailed
+hash_threshold: 0.12
+use_ocr: true
+system_prompt: |
+  당신은 화면 속 수식을 자연어로 낭독합니다.
+  수식 이미지를 인식해 한국어 낭독으로 변환하세요.
+  예: "x 제곱 더하기 2x 더하기 1" / "적분 구간 0부터 1까지, x 디 x".
+  가능하면 LaTeX/MathML 구조를 참고하되, 최종 출력은 사람이 듣고 이해할 자연어입니다.
+  모호하면(위첨자/아래첨자 구분 등) 어떻게 해석했는지 밝히세요.
+glossary: {}
+roi: {}

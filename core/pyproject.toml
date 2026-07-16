@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eyemate-core"
+version = "0.0.1"
+description = "Reusable core for EyeMate: vision-LLM provider adapters, change detection, session context, and response post-processing. Screen-reader agnostic."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "EyeMate contributors" }]
+keywords = ["accessibility", "screen-reader", "vision-llm", "blind", "nvda"]
+
+# Kept intentionally light. Heavy/optional deps (each provider SDK, OCR engine)
+# live behind extras so the NVDA add-on bundles only what a user configured.
+dependencies = [
+    "Pillow>=9.0",       # image handling
+    "PyYAML>=6.0",       # profile packs
+    "imagehash>=4.3",    # perceptual hashing for change detection
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.0"]
+anthropic = ["anthropic>=0.39"]
+gemini = ["google-generativeai>=0.8"]
+ocr = ["rapidocr-onnxruntime>=1.3"]
+dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.8"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["eyemate_core*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.pytest.ini_options]
+testpaths = ["../tests"]
