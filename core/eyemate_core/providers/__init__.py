@@ -6,5 +6,6 @@ privacy-first / offline path.
 """
 
 from .base import Message, VisionProvider, VisionResponse
+from .factory import build_provider
 
-__all__ = ["VisionProvider", "Message", "VisionResponse"]
+__all__ = ["VisionProvider", "Message", "VisionResponse", "build_provider"]

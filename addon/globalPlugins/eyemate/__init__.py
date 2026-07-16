@@ -32,12 +32,28 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
-		# TODO(M1): initialise capture pipeline + provider adapter from config.
 		self._live_session = None
+		self._engine = None  # lazily built on first use (see _get_engine)
 
 	def terminate(self, *args, **kwargs):
 		# TODO(M2): stop any running live-narration session cleanly.
 		super().terminate(*args, **kwargs)
+
+	def _get_engine(self):
+		"""Build the NarrationEngine on demand from configuration.
+
+		TODO(M3): read provider name / API key / active profile from the NVDA
+		settings panel. For M1 this pulls from eyemate_core defaults so the
+		capture -> LLM -> speech path can be exercised end to end.
+		"""
+		if self._engine is None:
+			from eyemate_core.profiles import Profile
+			from .inference import build_engine
+
+			# Placeholder config until the settings panel lands (M3).
+			profile = Profile(name="general", system_prompt="화면을 간결히 설명하세요.")
+			self._engine = build_engine("ollama", {}, profile)
+		return self._engine
 
 	# --- F1: Live Narrator ------------------------------------------------
 
@@ -57,6 +73,21 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		gesture="kb:NVDA+shift+a",
 	)
 	def script_askScreen(self, gesture):
-		# TODO(M3): capture current frame + recent narration history, query LLM.
+		# M1 one-shot flow: capture the screen, narrate it, speak the result.
+		# Runs off the main thread so a slow LLM call never freezes NVDA.
+		import threading
+
 		import ui
-		ui.message("EyeMate: ask-the-screen not yet implemented")
+
+		def worker():
+			try:
+				from eyemate_core.capture import capture_screen
+
+				frame = capture_screen()
+				narration = self._get_engine().narrate(frame)
+				ui.message(narration.text)
+			except Exception as e:  # surface failures as speech, never crash NVDA
+				ui.message(f"EyeMate 오류: {e}")
+
+		ui.message("EyeMate: 화면을 확인하는 중...")
+		threading.Thread(target=worker, daemon=True).start()

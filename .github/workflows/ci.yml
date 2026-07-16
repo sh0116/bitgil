@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Lint & test (core)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install core (dev)
+        run: pip install -e ./core[dev]
+      - name: Ruff lint
+        run: ruff check core/
+      - name: Run tests
+        run: pytest -q
+
+  license-check:
+    name: License check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # Fail the build if any runtime dependency of eyemate-core carries a
+      # license incompatible with our MIT/GPLv2 dual structure. This is the
+      # automated backing for the competition's license-verification report.
+      - name: Install core + pip-licenses
+        run: |
+          pip install -e ./core
+          pip install pip-licenses
+      - name: Check dependency licenses
+        run: |
+          pip-licenses --format=markdown --with-urls
+          pip-licenses --fail-on="GPL-3.0;AGPL-3.0;GPL-3.0-only;GPL-3.0-or-later"
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # BYO API Key means a leaked key is the top risk — scan every push/PR.
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
