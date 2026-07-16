@@ -20,11 +20,13 @@ CONFIG_SPEC = {
 	"provider": 'string(default="ollama")',   # ollama | anthropic | openai
 	"apiKey": 'string(default="")',            # BYO API Key (blank for local Ollama)
 	"model": 'string(default="")',             # blank → provider default
-	"density": 'string(default="normal")',     # brief | normal | detailed
+	"profile": 'string(default="general")',    # active profile pack
+	"density": 'string(default="profile")',     # profile | brief | normal | detailed
 }
 
 _PROVIDERS = ["ollama", "anthropic", "openai"]
-_DENSITIES = ["brief", "normal", "detailed"]
+# "profile" means: inherit the density set in the profile pack (don't override).
+_DENSITIES = ["profile", "brief", "normal", "detailed"]
 
 
 def initialize() -> None:
@@ -56,6 +58,17 @@ class EyeMateSettingsPanel(SettingsPanel):
 		self._model = helper.addLabeledControl("모델 (빈칸=기본값)", wx.TextCtrl)
 		self._model.SetValue(conf["model"])
 
+		from .profiles import available_profile_names
+
+		names = available_profile_names()
+		self._profile = helper.addLabeledControl(
+			"프로파일 (Profile)", wx.Choice, choices=names
+		)
+		if conf["profile"] in names:
+			self._profile.SetStringSelection(conf["profile"])
+		elif names:
+			self._profile.SetSelection(0)
+
 		self._density = helper.addLabeledControl(
 			"해설 밀도 (Density)", wx.Choice, choices=_DENSITIES
 		)
@@ -66,6 +79,7 @@ class EyeMateSettingsPanel(SettingsPanel):
 		conf["provider"] = self._provider.GetStringSelection()
 		conf["apiKey"] = self._apiKey.GetValue()
 		conf["model"] = self._model.GetValue()
+		conf["profile"] = self._profile.GetStringSelection()
 		conf["density"] = self._density.GetStringSelection()
 
 

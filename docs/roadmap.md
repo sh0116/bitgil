@@ -21,8 +21,9 @@
 - [x] 복습 노트(markdown) 내보내기 F4 (`eyemate_core.review`) — `NVDA+shift+n`
 - [x] NVDA 설정 패널 (프로바이더 / API 키 / 모델 / 해설 밀도)
 - [x] OCR 어댑터(`eyemate_core.ocr`, rapidocr) → 변화 감지기 연결
-- [ ] 학습 프로파일 팩 선택 UI (YAML 팩 로드) — 남은 작업
-- [ ] 그래프 심층 설명 실사용 튜닝 (프로파일 프롬프트는 존재)
+- [x] 프로파일 팩 선택 UI (설정 패널에서 6종 YAML 팩 로드/선택)
+- [x] CLI 프로토타입(`scripts/eyemate_demo.py`) + 애드온 빌드(`scripts/build_addon.py`)
+- [ ] 그래프 심층 설명 실사용 튜닝 (프로파일 프롬프트는 존재) — 실기기 피드백 후
 
 ## M4 — 사용자 검증 & 커뮤니티
 - 시각장애인 사용자 테스트 (게임 3명 + 인강 3명 이상 목표)

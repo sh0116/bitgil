@@ -57,11 +57,23 @@ tests/        테스트
 
 프로바이더·API 키·해설 밀도는 NVDA 설정의 **EyeMate (눈동무)** 패널에서 조정합니다.
 
+## 프로토타입 바로 실행 / Try it now (no NVDA)
+
+애드온과 동일한 코어 파이프라인을 CLI로 실행합니다:
+
+```bash
+pip install -e ./core[dev]
+python scripts/eyemate_demo.py --image slide.png --provider anthropic --profile learning-chart
+```
+
+`.nvda-addon` 빌드: `python scripts/build_addon.py` → `dist/eyemate-<version>.nvda-addon`.
+자세한 사용법은 [docs/development.md](docs/development.md).
+
 ## 개발 상태 / Status
 
-🚧 **M1·M2 코드 완료, M3 진행 중.** 라이브/질의응답/복습 노트/설정 패널 동작, 학습 프로파일
-팩 선택 UI가 남은 작업입니다. 실기기 실측(게임 한 판·인강 그래프)은 실 API 키 + 데스크톱
-NVDA 환경 필요. 로드맵은 [docs/roadmap.md](docs/roadmap.md)를 참고하세요.
+🚧 **M1~M3 코드 완료 (프로토타입 동작).** 라이브 해설·질의응답·복습 노트·설정 패널·프로파일
+팩 6종·CLI 프로토타입·애드온 빌드까지 동작합니다. 남은 것은 실기기(데스크톱 NVDA + 실 API
+키/로컬 모델) 피드백 기반 튜닝. 로드맵은 [docs/roadmap.md](docs/roadmap.md)를 참고하세요.
 
 ## 시작하기 / Getting Started
 

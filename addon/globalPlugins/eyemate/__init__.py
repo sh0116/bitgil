@@ -8,12 +8,18 @@
 # readers or standalone apps. This plugin only handles NVDA integration:
 # gestures, speech output, and lifecycle.
 
+import os
+import sys
+
+# `eyemate_core` is vendored under lib/ when the add-on is built (see
+# scripts/build_addon.py). Put it on sys.path so `import eyemate_core` resolves
+# inside NVDA. In a dev checkout lib/ is absent and the installed package is used.
+_LIB = os.path.join(os.path.dirname(__file__), "lib")
+if os.path.isdir(_LIB) and _LIB not in sys.path:
+	sys.path.insert(0, _LIB)
+
 import globalPluginHandler
 from scriptHandler import script
-
-# NOTE: `eyemate_core` is bundled into the add-on at build time. During NVDA
-# runtime the import path is set up by the add-on packager. See
-# docs/development.md for the build story.
 
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
@@ -61,11 +67,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if self._engine is None:
 			import time
 
-			from eyemate_core.profiles import Profile
 			from eyemate_core.review import ReviewLog
 
 			from . import settings
 			from .inference import build_engine
+			from .profiles import load_profile
 
 			conf = settings.get_config()
 			provider_name = conf["provider"]
@@ -75,13 +81,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			if conf["model"]:
 				provider_config["model"] = conf["model"]
 
-			# TODO(M3): load full YAML profile packs and let the user pick one.
-			# For now the density comes from settings; prompt is the general one.
-			self._profile = Profile(
-				name="general",
-				system_prompt="화면을 간결히 설명하세요. 이전 해설이 있으면 무엇이 달라졌는지 중심으로 말하세요.",
-				narration_density=conf["density"],
-			)
+			# Active profile pack drives prompt / glossary / thresholds / cadence.
+			self._profile = load_profile(conf["profile"])
+			# "profile" density means: keep whatever the pack specifies.
+			if conf["density"] != "profile":
+				self._profile.narration_density = conf["density"]
+
 			self._review_log = ReviewLog(
 				title="EyeMate 세션 노트",
 				clock=lambda: time.strftime("%H:%M:%S"),
