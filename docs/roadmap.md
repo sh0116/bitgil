@@ -15,11 +15,14 @@
 - [x] 라이브 루프 (`eyemate_core.live.LiveNarrator`, F1 토글 배선)
 - **검증 목표:** 카드 게임 한 판을 라이브 해설만으로 진행 — *실기기 필요*
 
-## M3 — 프로파일 & 학습 모드 (F2, F3, F4)
-- YAML 프로파일 시스템 (`eyemate_core.profiles`)
-- 학습 프로파일: 그래프 설명 패턴, 슬라이드 감지
-- 질의응답 (Ask the Screen)
-- 복습 노트(markdown) 내보내기
+## M3 — 프로파일 & 학습 모드 (F2, F3, F4)  🚧 진행 중
+- [x] YAML 프로파일 시스템 (`eyemate_core.profiles`) + 관찰 주기(`observe_interval`)
+- [x] 질의응답 F2 (Ask the Screen) — `NVDA+shift+a`
+- [x] 복습 노트(markdown) 내보내기 F4 (`eyemate_core.review`) — `NVDA+shift+n`
+- [x] NVDA 설정 패널 (프로바이더 / API 키 / 모델 / 해설 밀도)
+- [x] OCR 어댑터(`eyemate_core.ocr`, rapidocr) → 변화 감지기 연결
+- [ ] 학습 프로파일 팩 선택 UI (YAML 팩 로드) — 남은 작업
+- [ ] 그래프 심층 설명 실사용 튜닝 (프로파일 프롬프트는 존재)
 
 ## M4 — 사용자 검증 & 커뮤니티
 - 시각장애인 사용자 테스트 (게임 3명 + 인강 3명 이상 목표)

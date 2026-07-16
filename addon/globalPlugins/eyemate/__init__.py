@@ -34,12 +34,21 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		super().__init__(*args, **kwargs)
 		self._engine = None  # lazily built on first use
 		self._profile = None
+		self._review_log = None  # session narration history for F4 export
 		self._narrator = None  # active LiveNarrator, if live mode is on
 		self._live_thread = None
 		self._speech = None
+		# Register config spec + settings panel (NVDA runtime only).
+		from . import settings
+
+		settings.initialize()
+		settings.register_panel()
 
 	def terminate(self, *args, **kwargs):
 		self._stop_live()
+		from . import settings
+
+		settings.unregister_panel()
 		super().terminate(*args, **kwargs)
 
 	def _get_engine_and_profile(self):
@@ -50,15 +59,36 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		capture -> LLM -> speech path can be exercised end to end.
 		"""
 		if self._engine is None:
+			import time
+
 			from eyemate_core.profiles import Profile
+			from eyemate_core.review import ReviewLog
+
+			from . import settings
 			from .inference import build_engine
 
-			# Placeholder config until the settings panel lands (M3).
+			conf = settings.get_config()
+			provider_name = conf["provider"]
+			provider_config = {}
+			if conf["apiKey"]:
+				provider_config["api_key"] = conf["apiKey"]
+			if conf["model"]:
+				provider_config["model"] = conf["model"]
+
+			# TODO(M3): load full YAML profile packs and let the user pick one.
+			# For now the density comes from settings; prompt is the general one.
 			self._profile = Profile(
 				name="general",
 				system_prompt="화면을 간결히 설명하세요. 이전 해설이 있으면 무엇이 달라졌는지 중심으로 말하세요.",
+				narration_density=conf["density"],
 			)
-			self._engine = build_engine("ollama", {}, self._profile)
+			self._review_log = ReviewLog(
+				title="EyeMate 세션 노트",
+				clock=lambda: time.strftime("%H:%M:%S"),
+			)
+			self._engine = build_engine(
+				provider_name, provider_config, self._profile, review_log=self._review_log
+			)
 		return self._engine, self._profile
 
 	# --- F1: Live Narrator ------------------------------------------------
@@ -92,7 +122,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				detector=build_change_detector(profile),
 				capture=capture_screen,
 				speak=self._speech.speak,
-				interval=1.5,
+				interval=profile.observe_interval,
 				on_error=lambda e: ui.message(f"EyeMate 오류: {e}"),
 			)
 			self._live_thread = threading.Thread(target=self._narrator.run, daemon=True)
@@ -134,3 +164,28 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 		ui.message("EyeMate: 화면을 확인하는 중...")
 		threading.Thread(target=worker, daemon=True).start()
+
+	# --- F4: Export review notes -----------------------------------------
+
+	@script(
+		description="Export EyeMate session narration as a Markdown review note",
+		gesture="kb:NVDA+shift+n",
+	)
+	def script_exportReviewNotes(self, gesture):
+		import os
+
+		import ui
+
+		if not self._review_log or len(self._review_log) == 0:
+			ui.message("EyeMate: 저장할 해설 기록이 없습니다")
+			return
+		try:
+			# TODO(M3): offer a file-save dialog; for now write to the Desktop.
+			path = os.path.join(
+				os.path.expanduser("~"), "Desktop", "eyemate-notes.review.md"
+			)
+			with open(path, "w", encoding="utf-8") as f:
+				f.write(self._review_log.to_markdown())
+			ui.message(f"EyeMate: 복습 노트를 저장했습니다 — {path}")
+		except Exception as e:
+			ui.message(f"EyeMate 오류: {e}")

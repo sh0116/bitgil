@@ -10,12 +10,13 @@ route through here.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterator
+from typing import Iterator, Optional
 
 from .context import SessionContext
 from .postprocess import apply_glossary, cap_length
 from .profiles import Profile
 from .providers.base import VisionProvider
+from .review import ReviewLog
 
 # Narration density → soft character budget for the spoken output.
 _DENSITY_MAX_CHARS = {"brief": 120, "normal": 320, "detailed": 800}
@@ -29,10 +30,23 @@ class Narration:
 
 
 class NarrationEngine:
-	def __init__(self, provider: VisionProvider, profile: Profile, history_size: int = 5):
+	def __init__(
+		self,
+		provider: VisionProvider,
+		profile: Profile,
+		history_size: int = 5,
+		review_log: Optional[ReviewLog] = None,
+	):
 		self.provider = provider
 		self.profile = profile
 		self.context = SessionContext(profile.system_prompt, history_size=history_size)
+		# When set, every narration is also appended here for later export (F4).
+		self.review_log = review_log
+
+	def _remember(self, text: str) -> None:
+		self.context.record_narration(text)
+		if self.review_log is not None:
+			self.review_log.record(text)
 
 	def _max_chars(self) -> int:
 		return _DENSITY_MAX_CHARS.get(self.profile.narration_density, 320)
@@ -47,7 +61,7 @@ class NarrationEngine:
 		messages = self.context.build_messages(frame, user_text=question)
 		resp = self.provider.complete(messages, max_tokens=self._pick_max_tokens())
 		text = self._finish(resp.text)
-		self.context.record_narration(text)
+		self._remember(text)
 		return Narration(
 			text=text,
 			prompt_tokens=resp.prompt_tokens,
@@ -68,7 +82,7 @@ class NarrationEngine:
 			piece = apply_glossary(chunk, self.profile.glossary)
 			parts.append(piece)
 			yield piece
-		self.context.record_narration("".join(parts))
+		self._remember("".join(parts))
 
 	def _pick_max_tokens(self) -> int:
 		# Roughly 3 chars/token for Korean; give headroom over the char budget.

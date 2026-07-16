@@ -47,10 +47,21 @@ tests/        테스트
 라이선스 이중 구조: NVDA가 GPLv2이므로 애드온 본체는 GPLv2, 다른 스크린리더/독립 앱으로의
 이식성을 위해 코어 로직은 MIT로 분리. 자세한 근거는 [docs/licensing.md](docs/licensing.md).
 
+## 단축키 / Keyboard Shortcuts
+
+| 단축키 | 기능 |
+|--------|------|
+| `NVDA+Shift+E` | 라이브 해설 켜기/끄기 (F1) |
+| `NVDA+Shift+A` | 현재 화면에 질문 (F2) |
+| `NVDA+Shift+N` | 세션 복습 노트를 마크다운으로 내보내기 (F4) |
+
+프로바이더·API 키·해설 밀도는 NVDA 설정의 **EyeMate (눈동무)** 패널에서 조정합니다.
+
 ## 개발 상태 / Status
 
-🚧 **초기 스캐폴딩 단계 (M1 진입 전)** — 아키텍처와 인터페이스 골격만 존재합니다.
-로드맵은 [docs/roadmap.md](docs/roadmap.md)를 참고하세요.
+🚧 **M1·M2 코드 완료, M3 진행 중.** 라이브/질의응답/복습 노트/설정 패널 동작, 학습 프로파일
+팩 선택 UI가 남은 작업입니다. 실기기 실측(게임 한 판·인강 그래프)은 실 API 키 + 데스크톱
+NVDA 환경 필요. 로드맵은 [docs/roadmap.md](docs/roadmap.md)를 참고하세요.
 
 ## 시작하기 / Getting Started
 

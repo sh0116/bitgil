@@ -28,6 +28,9 @@ class Profile:
 	hash_threshold: float = 0.12
 	use_ocr: bool = False
 	narration_density: str = "normal"  # brief | normal | detailed
+	# Seconds between live-mode observations. Lecture videos want a longer
+	# interval (only slide flips matter); real-time games want a shorter one.
+	observe_interval: float = 1.5
 
 	@classmethod
 	def from_yaml(cls, path: str | Path) -> "Profile":

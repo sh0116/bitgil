@@ -6,6 +6,8 @@ language: ko
 narration_density: brief
 hash_threshold: 0.20
 use_ocr: false
+# Real-time games change fast — observe more often (still latency-bound by LLM).
+observe_interval: 0.7
 system_prompt: |
   당신은 실시간 게임을 중계합니다. 지연이 치명적이므로 아주 짧게, 핵심만 말하세요.
   큰 변화(적 등장, 위험, 목표 위치)만 한두 단어로 알리세요.
