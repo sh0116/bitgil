@@ -1,14 +1,14 @@
 # Profile-system glue (GPLv2).
 # Locates the profile packs bundled into the add-on and loads them via
-# eyemate_core. Community packs from the eyemate-profiles repo drop into the
-# same directory. Heavy logic (YAML parsing) lives in eyemate_core.profiles.
+# bitgil_core. Community packs from the bitgil-profiles repo drop into the
+# same directory. Heavy logic (YAML parsing) lives in bitgil_core.profiles.
 
 from __future__ import annotations
 
 import os
 from typing import Dict, List
 
-from eyemate_core.profiles import Profile, load_builtin_profiles
+from bitgil_core.profiles import Profile, load_builtin_profiles
 
 # Built-in fallback so the add-on still works if no packs are bundled.
 _FALLBACK = Profile(
@@ -19,7 +19,7 @@ _FALLBACK = Profile(
 
 def packs_dir() -> str:
 	"""Directory holding bundled *.yaml profile packs (populated at build time)."""
-	here = os.path.dirname(os.path.dirname(__file__))  # .../globalPlugins/eyemate
+	here = os.path.dirname(os.path.dirname(__file__))  # .../globalPlugins/bitgil
 	return os.path.join(here, "profile_packs")
 
 

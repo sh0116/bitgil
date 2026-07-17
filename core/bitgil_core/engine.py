@@ -1,4 +1,4 @@
-"""NarrationEngine — the screen-reader-agnostic heart of EyeMate.
+"""NarrationEngine — the screen-reader-agnostic heart of Bitgil.
 
 Given a captured frame and a profile, it assembles the message list (profile
 prompt + recent narration history), calls the configured provider, applies

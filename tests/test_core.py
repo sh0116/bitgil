@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from eyemate_core.postprocess import apply_glossary, cap_length
-from eyemate_core.profiles import Profile, load_builtin_profiles
+from bitgil_core.postprocess import apply_glossary, cap_length
+from bitgil_core.profiles import Profile, load_builtin_profiles
 
 PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
 

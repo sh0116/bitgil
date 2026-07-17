@@ -1,6 +1,6 @@
-# eyemate-core
+# bitgil-core
 
-Reusable, screen-reader-agnostic core for [EyeMate (눈동무)](../README.md).
+Reusable, screen-reader-agnostic core for [Bitgil (빛길)](../README.md).
 
 This package is **MIT-licensed** on purpose: while the NVDA add-on itself must be
 GPLv2 (it runs inside the GPLv2 NVDA process), the logic below has no NVDA

@@ -1,6 +1,6 @@
 """Review notes (F4) — turn a session's narration history into study material.
 
-As EyeMate narrates a lecture or game, each line is appended here with a
+As Bitgil narrates a lecture or game, each line is appended here with a
 timestamp. At the end of the session the log exports to Markdown so a blind
 student can re-read what happened — restoring the review affordance that sighted
 students get from slides and notes.
@@ -23,7 +23,7 @@ class ReviewEntry:
 
 @dataclass
 class ReviewLog:
-	title: str = "EyeMate 세션 노트"
+	title: str = "Bitgil 세션 노트"
 	clock: Optional[Callable[[], str]] = None
 	entries: List[ReviewEntry] = field(default_factory=list)
 

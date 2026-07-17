@@ -1,6 +1,6 @@
 """Change detection gate.
 
-The whole cost/latency story of EyeMate rests here: we call the vision LLM only
+The whole cost/latency story of Bitgil rests here: we call the vision LLM only
 when the screen changes *meaningfully*, not every frame. The gate combines a
 cheap perceptual-hash comparison (structural change) with an optional OCR-text
 diff (textual change) so we catch both "the picture moved" and "the numbers

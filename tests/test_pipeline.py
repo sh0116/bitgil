@@ -8,11 +8,11 @@ import io
 import pytest
 from PIL import Image
 
-from eyemate_core.change_detect import ChangeDetector
-from eyemate_core.engine import NarrationEngine
-from eyemate_core.profiles import Profile
-from eyemate_core.providers import build_provider
-from eyemate_core.providers.base import Message, VisionProvider, VisionResponse
+from bitgil_core.change_detect import ChangeDetector
+from bitgil_core.engine import NarrationEngine
+from bitgil_core.profiles import Profile
+from bitgil_core.providers import build_provider
+from bitgil_core.providers.base import Message, VisionProvider, VisionResponse
 
 
 class FakeProvider(VisionProvider):

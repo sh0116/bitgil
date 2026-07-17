@@ -1,8 +1,8 @@
 """YAML profile loader.
 
-A profile tailors EyeMate to a specific game or learning platform without code
+A profile tailors Bitgil to a specific game or learning platform without code
 changes — the structural answer to "game updates break the mod". Community packs
-live in a separate repo (eyemate-profiles) and are contributed as YAML, so
+live in a separate repo (bitgil-profiles) and are contributed as YAML, so
 non-developers (including blind users themselves) can contribute.
 """
 

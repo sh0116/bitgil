@@ -1,6 +1,6 @@
 """OCR adapter — extract on-screen text for the change-detection gate.
 
-Optional (`pip install eyemate-core[ocr]`). `build_ocr()` returns a
+Optional (`pip install bitgil-core[ocr]`). `build_ocr()` returns a
 ``bytes -> str`` callable suitable for `ChangeDetector(ocr=...)`, or raises if
 the engine isn't available. The heavy dependency (rapidocr) is imported lazily
 so the rest of the core stays light and headless-safe.

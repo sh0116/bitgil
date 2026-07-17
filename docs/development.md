@@ -9,7 +9,7 @@ pytest                              # 테스트
 ruff check core/                    # 린트
 ```
 
-코어(`eyemate_core`)는 NVDA에 의존하지 않으므로 일반 파이썬 환경에서 개발·테스트한다.
+코어(`bitgil_core`)는 NVDA에 의존하지 않으므로 일반 파이썬 환경에서 개발·테스트한다.
 
 ## 프로토타입 실행 (NVDA 없이) / Try the prototype
 
@@ -17,31 +17,31 @@ ruff check core/                    # 린트
 
 ```bash
 # 로컬·오프라인 (Ollama + 비전 모델 필요, 화면이 외부로 안 나감)
-python scripts/eyemate_demo.py --image slide.png --provider ollama --model llava
+python scripts/bitgil_demo.py --image slide.png --provider ollama --model llava
 
 # Anthropic (ANTHROPIC_API_KEY 환경변수 사용)
-python scripts/eyemate_demo.py --image chart.png --provider anthropic --profile learning-chart
+python scripts/bitgil_demo.py --image chart.png --provider anthropic --profile learning-chart
 
 # 현재 화면 캡처 + 질문 (데스크톱)
-python scripts/eyemate_demo.py --screen --ask "내 체력이 얼마야?"
+python scripts/bitgil_demo.py --screen --ask "내 체력이 얼마야?"
 
 # 스트리밍 낭독
-python scripts/eyemate_demo.py --image board.png --profile game-turnbased --stream
+python scripts/bitgil_demo.py --image board.png --profile game-turnbased --stream
 ```
 
 ## 애드온 빌드 / Build the add-on
 
 ```bash
-python scripts/build_addon.py   # → dist/eyemate-<version>.nvda-addon
+python scripts/build_addon.py   # → dist/bitgil-<version>.nvda-addon
 ```
 
-빌드 스크립트가 MIT 코어(`eyemate_core`)를 `lib/`에 벤더링하고, CC BY 4.0 프로파일 팩을
+빌드 스크립트가 MIT 코어(`bitgil_core`)를 `lib/`에 벤더링하고, CC BY 4.0 프로파일 팩을
 `profile_packs/`에 번들한다. 산출물 `*.nvda-addon`을 NVDA에서 설치한다.
 
 ## NVDA 애드온 빌드
 
 애드온은 `addon/` 아래 NVDA 표준 레이아웃(`manifest.ini`, `globalPlugins/`)을 따른다.
-빌드 시 MIT 코어(`eyemate_core`)를 애드온 번들에 포함시킨다.
+빌드 시 MIT 코어(`bitgil_core`)를 애드온 번들에 포함시킨다.
 
 권장 도구: [NVDA addon templates / SCons 기반 빌드](https://github.com/nvaccess/nvda/blob/master/devDocs/addonInstallation.md).
 빌드 스크립트는 M1에서 추가 예정 (TODO).

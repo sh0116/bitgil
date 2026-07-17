@@ -1,5 +1,5 @@
 # NVDA settings integration (GPLv2).
-# Registers EyeMate's config spec and a settings panel so users configure the
+# Registers Bitgil's config spec and a settings panel so users configure the
 # provider, API key, model, and narration density without editing files.
 #
 # All imports here are NVDA-runtime modules (config, gui, wx); this module is
@@ -12,7 +12,7 @@ import gui
 import wx
 from gui.settingsDialogs import SettingsPanel
 
-CONFIG_SECTION = "eyemate"
+CONFIG_SECTION = "bitgil"
 
 # configobj validation spec. API key stays in NVDA's config (user-local); it is
 # never logged and never committed — see SECURITY.md.
@@ -38,8 +38,8 @@ def get_config():
 	return config.conf[CONFIG_SECTION]
 
 
-class EyeMateSettingsPanel(SettingsPanel):
-	title = "EyeMate (눈동무)"
+class BitgilSettingsPanel(SettingsPanel):
+	title = "Bitgil (빛길)"
 
 	def makeSettings(self, settingsSizer):
 		helper = gui.guiHelper.BoxSizerHelper(self, sizer=settingsSizer)
@@ -84,11 +84,11 @@ class EyeMateSettingsPanel(SettingsPanel):
 
 
 def register_panel() -> None:
-	gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(EyeMateSettingsPanel)
+	gui.settingsDialogs.NVDASettingsDialog.categoryClasses.append(BitgilSettingsPanel)
 
 
 def unregister_panel() -> None:
 	try:
-		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(EyeMateSettingsPanel)
+		gui.settingsDialogs.NVDASettingsDialog.categoryClasses.remove(BitgilSettingsPanel)
 	except ValueError:
 		pass

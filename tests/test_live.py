@@ -4,11 +4,11 @@ import io
 
 from PIL import Image
 
-from eyemate_core.change_detect import ChangeDetector
-from eyemate_core.engine import NarrationEngine
-from eyemate_core.live import LiveNarrator, iter_sentences
-from eyemate_core.profiles import Profile
-from eyemate_core.providers.base import VisionProvider, VisionResponse
+from bitgil_core.change_detect import ChangeDetector
+from bitgil_core.engine import NarrationEngine
+from bitgil_core.live import LiveNarrator, iter_sentences
+from bitgil_core.profiles import Profile
+from bitgil_core.providers.base import VisionProvider, VisionResponse
 
 
 class StreamProvider(VisionProvider):

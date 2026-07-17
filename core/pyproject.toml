@@ -3,13 +3,13 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "eyemate-core"
+name = "bitgil-core"
 version = "0.0.1"
-description = "Reusable core for EyeMate: vision-LLM provider adapters, change detection, session context, and response post-processing. Screen-reader agnostic."
+description = "Reusable core for Bitgil: vision-LLM provider adapters, change detection, session context, and response post-processing. Screen-reader agnostic."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-authors = [{ name = "EyeMate contributors" }]
+authors = [{ name = "Bitgil contributors" }]
 keywords = ["accessibility", "screen-reader", "vision-llm", "blind", "nvda"]
 
 # Kept intentionally light. Heavy/optional deps (each provider SDK, OCR engine)
@@ -31,7 +31,7 @@ dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.8"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["eyemate_core*"]
+include = ["bitgil_core*"]
 
 [tool.ruff]
 line-length = 100

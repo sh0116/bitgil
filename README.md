@@ -1,4 +1,4 @@
-# 눈동무 (EyeMate)
+# 빛길 (Bitgil)
 
 > 시각장애인을 위한 LLM 실시간 화면 해설 NVDA 애드온 — 게임과 학습을 중심으로
 >
@@ -55,7 +55,7 @@ tests/        테스트
 | `NVDA+Shift+A` | 현재 화면에 질문 (F2) |
 | `NVDA+Shift+N` | 세션 복습 노트를 마크다운으로 내보내기 (F4) |
 
-프로바이더·API 키·해설 밀도는 NVDA 설정의 **EyeMate (눈동무)** 패널에서 조정합니다.
+프로바이더·API 키·해설 밀도는 NVDA 설정의 **Bitgil (빛길)** 패널에서 조정합니다.
 
 ## 프로토타입 바로 실행 / Try it now (no NVDA)
 
@@ -63,10 +63,10 @@ tests/        테스트
 
 ```bash
 pip install -e ./core[dev]
-python scripts/eyemate_demo.py --image slide.png --provider anthropic --profile learning-chart
+python scripts/bitgil_demo.py --image slide.png --provider anthropic --profile learning-chart
 ```
 
-`.nvda-addon` 빌드: `python scripts/build_addon.py` → `dist/eyemate-<version>.nvda-addon`.
+`.nvda-addon` 빌드: `python scripts/build_addon.py` → `dist/bitgil-<version>.nvda-addon`.
 자세한 사용법은 [docs/development.md](docs/development.md).
 
 ## 개발 상태 / Status

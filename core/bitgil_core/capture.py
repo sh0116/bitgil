@@ -1,7 +1,7 @@
 """Screen capture → PNG bytes.
 
 Reusable and screen-reader-agnostic (no NVDA dependency), but desktop-only:
-`mss` is an optional extra (`pip install eyemate-core[capture]`) and is imported
+`mss` is an optional extra (`pip install bitgil-core[capture]`) and is imported
 lazily so the rest of the core works in headless CI.
 
 Privacy note: captured frames are personal content — never log or persist them;

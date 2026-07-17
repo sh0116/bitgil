@@ -1,7 +1,7 @@
 """Provider adapter interface.
 
 Every concrete provider (OpenAI, Anthropic, Gemini, Ollama) implements
-`VisionProvider`. The rest of EyeMate depends only on this interface, so
+`VisionProvider`. The rest of Bitgil depends only on this interface, so
 swapping providers — or adding a local one — never touches call sites.
 """
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""EyeMate CLI prototype — narrate a screenshot without NVDA.
+"""Bitgil CLI prototype — narrate a screenshot without NVDA.
 
 Runs the exact core pipeline (profile -> provider -> engine) the add-on uses, so
 you can see and tune narration quality on any machine, with your own API key or
@@ -8,16 +8,16 @@ a local Ollama, before installing into NVDA.
 Examples
 --------
   # Describe an image with Anthropic (reads ANTHROPIC_API_KEY from env)
-  python scripts/eyemate_demo.py --image slide.png --provider anthropic
+  python scripts/bitgil_demo.py --image slide.png --provider anthropic
 
   # Local, private, offline — needs a running Ollama with a vision model
-  python scripts/eyemate_demo.py --image board.png --provider ollama --model llava
+  python scripts/bitgil_demo.py --image board.png --provider ollama --model llava
 
   # Capture the current screen and ask a question (desktop only)
-  python scripts/eyemate_demo.py --screen --ask "내 체력이 얼마야?"
+  python scripts/bitgil_demo.py --screen --ask "내 체력이 얼마야?"
 
   # Use a learning profile and stream the narration
-  python scripts/eyemate_demo.py --image chart.png --profile learning-chart --stream
+  python scripts/bitgil_demo.py --image chart.png --profile learning-chart --stream
 """
 
 from __future__ import annotations
@@ -27,21 +27,21 @@ import os
 import sys
 import time
 
-# Allow running from a checkout without installing eyemate-core.
+# Allow running from a checkout without installing bitgil-core.
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_REPO, "core"))
 
-from eyemate_core.engine import NarrationEngine  # noqa: E402
-from eyemate_core.profiles import Profile, load_builtin_profiles  # noqa: E402
-from eyemate_core.providers import build_provider  # noqa: E402
-from eyemate_core.review import ReviewLog  # noqa: E402
+from bitgil_core.engine import NarrationEngine  # noqa: E402
+from bitgil_core.profiles import Profile, load_builtin_profiles  # noqa: E402
+from bitgil_core.providers import build_provider  # noqa: E402
+from bitgil_core.review import ReviewLog  # noqa: E402
 
 DEFAULT_PROFILES_DIR = os.path.join(_REPO, "profiles")
 
 
 def _load_frame(args) -> bytes:
 	if args.screen:
-		from eyemate_core.capture import capture_screen
+		from bitgil_core.capture import capture_screen
 
 		return capture_screen()
 	if not args.image:
@@ -61,7 +61,7 @@ def _load_profile(name: str, directory: str) -> Profile:
 
 
 def main() -> None:
-	p = argparse.ArgumentParser(description="EyeMate CLI prototype")
+	p = argparse.ArgumentParser(description="Bitgil CLI prototype")
 	src = p.add_mutually_exclusive_group()
 	src.add_argument("--image", help="path to a screenshot (PNG/JPEG)")
 	src.add_argument("--screen", action="store_true", help="capture the current screen")

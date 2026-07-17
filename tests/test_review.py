@@ -4,10 +4,10 @@ import io
 
 from PIL import Image
 
-from eyemate_core.engine import NarrationEngine
-from eyemate_core.profiles import Profile
-from eyemate_core.providers.base import VisionProvider, VisionResponse
-from eyemate_core.review import ReviewLog
+from bitgil_core.engine import NarrationEngine
+from bitgil_core.profiles import Profile
+from bitgil_core.providers.base import VisionProvider, VisionResponse
+from bitgil_core.review import ReviewLog
 
 
 class FixedProvider(VisionProvider):

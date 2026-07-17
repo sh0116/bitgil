@@ -9,9 +9,9 @@ from pathlib import Path
 
 from PIL import Image
 
-from eyemate_core.engine import NarrationEngine
-from eyemate_core.profiles import load_builtin_profiles
-from eyemate_core.providers.base import VisionProvider, VisionResponse
+from bitgil_core.engine import NarrationEngine
+from bitgil_core.profiles import load_builtin_profiles
+from bitgil_core.providers.base import VisionProvider, VisionResponse
 
 PROFILES_DIR = Path(__file__).resolve().parent.parent / "profiles"
 

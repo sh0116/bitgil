@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Assemble the installable EyeMate NVDA add-on (`.nvda-addon`).
+"""Assemble the installable Bitgil NVDA add-on (`.nvda-addon`).
 
 Layout produced (a zip renamed to .nvda-addon):
 
     manifest.ini
-    globalPlugins/eyemate/…                (the GPLv2 add-on)
-    globalPlugins/eyemate/lib/eyemate_core (vendored MIT core, on sys.path)
-    globalPlugins/eyemate/profile_packs/*.yaml   (CC BY 4.0 packs)
+    globalPlugins/bitgil/…                (the GPLv2 add-on)
+    globalPlugins/bitgil/lib/bitgil_core (vendored MIT core, on sys.path)
+    globalPlugins/bitgil/profile_packs/*.yaml   (CC BY 4.0 packs)
 
-Run: python scripts/build_addon.py  ->  dist/eyemate-<version>.nvda-addon
+Run: python scripts/build_addon.py  ->  dist/bitgil-<version>.nvda-addon
 """
 
 from __future__ import annotations
@@ -45,24 +45,24 @@ def build() -> str:
 		ignore=_IGNORE,
 	)
 
-	eyemate_dir = os.path.join(BUILD, "globalPlugins", "eyemate")
+	bitgil_dir = os.path.join(BUILD, "globalPlugins", "bitgil")
 
 	# 2. vendor the MIT core under lib/ (resolved via sys.path at runtime)
 	shutil.copytree(
-		os.path.join(REPO, "core", "eyemate_core"),
-		os.path.join(eyemate_dir, "lib", "eyemate_core"),
+		os.path.join(REPO, "core", "bitgil_core"),
+		os.path.join(bitgil_dir, "lib", "bitgil_core"),
 		ignore=_IGNORE,
 	)
 
 	# 3. bundle the CC BY 4.0 profile packs
-	packs = os.path.join(eyemate_dir, "profile_packs")
+	packs = os.path.join(bitgil_dir, "profile_packs")
 	os.makedirs(packs)
 	for name in os.listdir(os.path.join(REPO, "profiles")):
 		if name.endswith(".yaml"):
 			shutil.copy(os.path.join(REPO, "profiles", name), os.path.join(packs, name))
 
 	# 4. zip -> .nvda-addon
-	out = os.path.join(DIST, f"eyemate-{_version()}.nvda-addon")
+	out = os.path.join(DIST, f"bitgil-{_version()}.nvda-addon")
 	if os.path.exists(out):
 		os.remove(out)
 	with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
