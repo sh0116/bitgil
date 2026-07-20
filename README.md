@@ -32,7 +32,7 @@
 | F2 | 대화형 질의응답 (Ask the Screen) | 현재 화면에 대해 언제든 질문 |
 | F3 | 도메인/커뮤니티 프로파일 팩 | YAML로 게임·학습 플랫폼별 해설 설정을 커뮤니티가 기여 |
 | F4 | 학습 특화 기능 | 그래프·차트 심층 설명, 수식 낭독, 복습 노트 내보내기 |
-| F5 | 멀티 프로바이더 + 로컬 LLM | OpenAI / Anthropic / Gemini / Ollama, BYO API Key |
+| F5 | 멀티 프로바이더 + 로컬 LLM | OpenAI / Anthropic / Bedrock / Gemini / Ollama, BYO API Key |
 
 ## 프로젝트 구조 / Repository Layout
 

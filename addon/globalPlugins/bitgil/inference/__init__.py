@@ -21,7 +21,9 @@ def build_engine(
 	review_log: Optional[ReviewLog] = None,
 ) -> NarrationEngine:
 	"""Construct a NarrationEngine from resolved NVDA config values."""
-	provider = build_provider(provider_name, provider_config)
+	# The profile's speed tier picks a faster/slower model unless the user pinned
+	# a specific model in the settings panel (which lands in provider_config).
+	provider = build_provider(provider_name, provider_config, speed=profile.speed)
 	return NarrationEngine(provider, profile, review_log=review_log)
 
 

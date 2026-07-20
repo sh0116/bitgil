@@ -31,6 +31,15 @@ class Profile:
 	# Seconds between live-mode observations. Lecture videos want a longer
 	# interval (only slide flips matter); real-time games want a shorter one.
 	observe_interval: float = 1.5
+	# Latency vs. quality preference, resolved to a concrete model per provider
+	# (see VisionProvider.model_for_speed). Profiles stay provider-agnostic — a
+	# game profile asks for "fast", not "claude-haiku". LLM round-trip dominates
+	# live-mode latency, so this is the biggest lever a profile has over it.
+	speed: str = "balanced"  # quality | balanced | fast
+	# Longest image edge (px) sent to the model; 0 = send as captured. Downscaling
+	# cuts upload size and vision-token count — both latency and cost — with little
+	# quality loss for on-screen text/UI. Fast profiles set this low.
+	max_image_dim: int = 0
 
 	@classmethod
 	def from_yaml(cls, path: str | Path) -> "Profile":

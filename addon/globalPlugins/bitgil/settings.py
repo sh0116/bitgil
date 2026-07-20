@@ -17,14 +17,14 @@ CONFIG_SECTION = "bitgil"
 # configobj validation spec. API key stays in NVDA's config (user-local); it is
 # never logged and never committed — see SECURITY.md.
 CONFIG_SPEC = {
-	"provider": 'string(default="ollama")',   # ollama | anthropic | openai
+	"provider": 'string(default="ollama")',   # ollama | anthropic | openai | gemini
 	"apiKey": 'string(default="")',            # BYO API Key (blank for local Ollama)
-	"model": 'string(default="")',             # blank → provider default
+	"model": 'string(default="")',             # blank → profile speed tier / provider default
 	"profile": 'string(default="general")',    # active profile pack
 	"density": 'string(default="profile")',     # profile | brief | normal | detailed
 }
 
-_PROVIDERS = ["ollama", "anthropic", "openai"]
+_PROVIDERS = ["ollama", "anthropic", "openai", "gemini"]
 # "profile" means: inherit the density set in the profile pack (don't override).
 _DENSITIES = ["profile", "brief", "normal", "detailed"]
 

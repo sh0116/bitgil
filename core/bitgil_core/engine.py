@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Iterator, Optional
 
 from .context import SessionContext
+from .image_ops import downscale_png
 from .postprocess import apply_glossary, cap_length
 from .profiles import Profile
 from .providers.base import VisionProvider
@@ -56,8 +57,13 @@ class NarrationEngine:
 		text = apply_glossary(raw, self.profile.glossary)
 		return cap_length(text, self._max_chars())
 
+	def _prepare_frame(self, frame: bytes) -> bytes:
+		"""Downscale the frame per profile before sending it to the provider."""
+		return downscale_png(frame, self.profile.max_image_dim)
+
 	def narrate(self, frame: bytes, question: str = "") -> Narration:
 		"""Produce narration for a frame (blocking). `question` drives F2."""
+		frame = self._prepare_frame(frame)
 		messages = self.context.build_messages(frame, user_text=question)
 		resp = self.provider.complete(messages, max_tokens=self._pick_max_tokens())
 		text = self._finish(resp.text)
@@ -76,6 +82,7 @@ class NarrationEngine:
 		applied mid-stream (it needs the whole text), so streaming honours the
 		profile prompt for brevity rather than a hard char cap.
 		"""
+		frame = self._prepare_frame(frame)
 		messages = self.context.build_messages(frame, user_text=question)
 		parts: list[str] = []
 		for chunk in self.provider.stream(messages, max_tokens=self._pick_max_tokens()):

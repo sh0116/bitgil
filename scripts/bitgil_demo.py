@@ -82,12 +82,17 @@ def main() -> None:
 		provider_config["api_key"] = args.api_key
 	if args.model:
 		provider_config["model"] = args.model
-	provider = build_provider(args.provider, provider_config)
+	# --model (if given) wins; otherwise the profile's speed tier picks the model.
+	provider = build_provider(args.provider, provider_config, speed=profile.speed)
 
 	review = ReviewLog(clock=lambda: time.strftime("%H:%M:%S"))
 	engine = NarrationEngine(provider, profile, review_log=review)
 
-	print(f"[profile={profile.name} provider={provider.name} density={profile.narration_density}]")
+	model = getattr(provider, "model", "?")
+	print(
+		f"[profile={profile.name} provider={provider.name} model={model} "
+		f"speed={profile.speed} density={profile.narration_density}]"
+	)
 	started = time.monotonic()
 	try:
 		if args.stream:

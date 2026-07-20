@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Iterator, Optional, Sequence
+from typing import Iterator, Mapping, Optional, Sequence
 
 
 @dataclass
@@ -38,6 +38,17 @@ class VisionProvider(ABC):
 	"""
 
 	name: str = "base"
+
+	# Maps a profile speed tier to a concrete model id for this provider. A
+	# provider with a single model (e.g. local Ollama) leaves this empty and
+	# falls back to its default. Pure lookup — no SDK import — so the factory can
+	# resolve a model without pulling in the provider's dependencies.
+	SPEED_MODELS: Mapping[str, str] = {}
+
+	@classmethod
+	def model_for_speed(cls, speed: str) -> Optional[str]:
+		"""Concrete model id for a profile speed tier, or None to use the default."""
+		return cls.SPEED_MODELS.get(speed)
 
 	@abstractmethod
 	def complete(self, messages: Sequence[Message], *, max_tokens: int = 300) -> VisionResponse:

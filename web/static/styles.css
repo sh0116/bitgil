@@ -1,0 +1,71 @@
+/* Minimal, high-contrast, keyboard/screen-reader friendly — the UI of an
+   accessibility tool must itself be accessible. Respects color scheme + reduced
+   motion. */
+:root {
+	--bg: #ffffff;
+	--fg: #14181f;
+	--muted: #5a6472;
+	--accent: #1a5fd0;
+	--card: #f2f5fa;
+	--reason: #0a7d55;
+}
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #10141a;
+		--fg: #e8edf4;
+		--muted: #9aa5b4;
+		--accent: #6fa8ff;
+		--card: #1a2028;
+		--reason: #56d3a0;
+	}
+}
+
+* { box-sizing: border-box; }
+body {
+	margin: 0;
+	font: 16px/1.5 system-ui, "Noto Sans KR", sans-serif;
+	color: var(--fg);
+	background: var(--bg);
+}
+main { max-width: 720px; margin: 0 auto; padding: 1.5rem; }
+h1 { margin: 0 0 .25rem; font-size: 1.9rem; }
+h1 span { color: var(--muted); font-weight: 400; font-size: 1.1rem; }
+.tagline { color: var(--muted); margin: 0 0 1.25rem; }
+
+.controls {
+	display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: center;
+	padding: 1rem; background: var(--card); border-radius: 10px;
+}
+.controls label { font-weight: 600; }
+.controls label.check { font-weight: 400; display: inline-flex; gap: .4rem; align-items: center; }
+
+button, select, input[type="number"] {
+	font: inherit; padding: .5rem .7rem; border-radius: 8px;
+	border: 1px solid var(--muted); background: var(--bg); color: var(--fg);
+}
+button {
+	background: var(--accent); color: #fff; border: none; font-weight: 700;
+	cursor: pointer; padding: .6rem 1.1rem;
+}
+button:hover { filter: brightness(1.08); }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+#status {
+	margin: 1rem 0; padding: .7rem .9rem; border-left: 4px solid var(--accent);
+	background: var(--card); border-radius: 0 8px 8px 0;
+}
+h2 { font-size: 1.15rem; margin: 1.5rem 0 .5rem; }
+#log { list-style: none; margin: 0; padding: 0; }
+#log li {
+	padding: .6rem .8rem; margin-bottom: .5rem; background: var(--card);
+	border-radius: 8px;
+}
+.reason {
+	display: inline-block; font-size: .78rem; font-weight: 700; color: var(--reason);
+	margin-right: .4rem;
+}
+.meta { color: var(--muted); font-size: .9rem; margin-top: 1.5rem; }
+
+@media (prefers-reduced-motion: reduce) {
+	* { animation: none !important; transition: none !important; }
+}

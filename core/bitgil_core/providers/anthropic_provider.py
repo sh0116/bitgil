@@ -16,6 +16,15 @@ from .base import Message, VisionProvider, VisionResponse
 # override this via the factory / config (e.g. a faster small model).
 DEFAULT_MODEL = "claude-opus-4-8"
 
+# Speed tier → model. Live game/lecture narration is latency-bound by the LLM
+# round-trip, so a "fast" profile drops to Haiku; "quality" keeps Opus for
+# detailed chart/graph description where correctness matters more than speed.
+SPEED_MODELS = {
+	"fast": "claude-haiku-4-5-20251001",
+	"balanced": "claude-sonnet-5",
+	"quality": "claude-opus-4-8",
+}
+
 
 def _to_anthropic(messages: Sequence[Message]) -> tuple[str, list[dict]]:
 	"""Split our Message list into (system_prompt, anthropic_messages)."""
@@ -46,6 +55,7 @@ def _to_anthropic(messages: Sequence[Message]) -> tuple[str, list[dict]]:
 
 class AnthropicProvider(VisionProvider):
 	name = "anthropic"
+	SPEED_MODELS = SPEED_MODELS
 
 	def __init__(self, api_key: str | None = None, model: str = DEFAULT_MODEL):
 		self._api_key = api_key

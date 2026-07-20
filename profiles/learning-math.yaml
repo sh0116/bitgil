@@ -4,6 +4,10 @@ language: ko
 narration_density: detailed
 hash_threshold: 0.12
 use_ocr: true
+# Reading equations correctly matters more than speed; keep resolution high so
+# superscripts/subscripts stay legible.
+speed: quality
+max_image_dim: 1600
 system_prompt: |
   당신은 화면 속 수식을 자연어로 낭독합니다.
   수식 이미지를 인식해 한국어 낭독으로 변환하세요.

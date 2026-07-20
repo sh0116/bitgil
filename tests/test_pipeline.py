@@ -47,16 +47,67 @@ def test_factory_unknown_provider_raises():
 		build_provider("does-not-exist")
 
 
-def test_factory_planned_provider_raises_not_implemented():
-	with pytest.raises(NotImplementedError):
-		build_provider("gemini")
-
-
 def test_factory_builds_ollama_without_sdk():
 	# Ollama needs no external SDK (uses requests) — should construct cleanly.
 	p = build_provider("ollama", {"model": "llava", "base_url": "http://x:1"})
 	assert p.name == "ollama"
 	assert p.model == "llava"
+
+
+def test_factory_builds_gemini_without_sdk():
+	# Construction must not import the SDK (lazy), so this works offline.
+	p = build_provider("gemini", {"api_key": "k"})
+	assert p.name == "gemini"
+
+
+def test_factory_builds_bedrock_without_sdk():
+	# Bedrock construction is lazy too (no anthropic/boto3 import until a call).
+	p = build_provider("bedrock", {"aws_region": "ap-northeast-2"})
+	assert p.name == "bedrock"
+	assert p.aws_region == "ap-northeast-2"
+
+
+def test_bedrock_speed_tier_picks_vision_capable_fast_model():
+	from bitgil_core.providers.bedrock_provider import SPEED_MODELS
+
+	p = build_provider("bedrock", {}, speed="fast")
+	assert p.model == SPEED_MODELS["fast"]
+
+
+def test_factory_speed_tier_picks_fast_model():
+	# No explicit model + fast profile → provider's fast-tier model.
+	from bitgil_core.providers.anthropic_provider import SPEED_MODELS
+
+	p = build_provider("anthropic", {"api_key": "k"}, speed="fast")
+	assert p.model == SPEED_MODELS["fast"]
+
+
+def test_factory_explicit_model_beats_speed_tier():
+	# A model pinned in config always wins over the speed tier.
+	p = build_provider("anthropic", {"api_key": "k", "model": "custom-model"}, speed="fast")
+	assert p.model == "custom-model"
+
+
+def test_factory_speed_tier_ignored_for_ollama():
+	# Local models don't map to tiers — falls back to the Ollama default.
+	from bitgil_core.providers.ollama_provider import DEFAULT_MODEL
+
+	p = build_provider("ollama", {}, speed="fast")
+	assert p.model == DEFAULT_MODEL
+
+
+def test_gemini_conversion_splits_system_and_builds_parts():
+	from bitgil_core.providers.gemini_provider import _to_gemini
+
+	system, contents = _to_gemini([
+		Message(role="system", text="you are X"),
+		Message(role="user", text="what is this?", image=b"fakebytes"),
+	])
+	assert system == "you are X"
+	assert len(contents) == 1 and contents[0]["role"] == "user"
+	parts = contents[0]["parts"]
+	assert {"mime_type": "image/png", "data": b"fakebytes"} in parts
+	assert "what is this?" in parts
 
 
 # --- engine -----------------------------------------------------------------
@@ -100,6 +151,42 @@ def test_engine_stream_yields_and_records():
 	got = list(engine.narrate_stream(_png("red")))
 	assert "".join(got) == "체 력 높음"
 	assert engine.context.recent() == ["체 력 높음"]
+
+
+# --- image downscaling ------------------------------------------------------
+
+def _dims(data: bytes):
+	with Image.open(io.BytesIO(data)) as img:
+		return img.size
+
+
+def test_downscale_shrinks_and_preserves_aspect():
+	from bitgil_core.image_ops import downscale_png
+
+	out = downscale_png(_png("red", size=(2000, 1000)), max_dim=960)
+	assert _dims(out) == (960, 480)
+
+
+def test_downscale_noop_when_within_bound():
+	from bitgil_core.image_ops import downscale_png
+
+	frame = _png("red", size=(100, 100))
+	assert downscale_png(frame, max_dim=960) is frame  # unchanged, returned as-is
+
+
+def test_downscale_disabled_when_zero():
+	from bitgil_core.image_ops import downscale_png
+
+	frame = _png("red", size=(2000, 2000))
+	assert downscale_png(frame, max_dim=0) is frame
+
+
+def test_engine_downscales_frame_per_profile():
+	fake = FakeProvider()
+	engine = NarrationEngine(fake, _profile(max_image_dim=64))
+	engine.narrate(_png("blue", size=(512, 256)))
+	sent = fake.last_messages[-1].image
+	assert max(_dims(sent)) == 64
 
 
 # --- change detector --------------------------------------------------------

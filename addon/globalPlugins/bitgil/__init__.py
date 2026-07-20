@@ -60,9 +60,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def _get_engine_and_profile(self):
 		"""Build the NarrationEngine + its profile on demand from configuration.
 
-		TODO(M3): read provider name / API key / active profile from the NVDA
-		settings panel. For now this uses bitgil_core defaults so the
-		capture -> LLM -> speech path can be exercised end to end.
+		Reads the provider, API key, model, active profile pack, and narration
+		density from the NVDA settings panel. The engine is cached; call
+		_reset_engine() after a settings change to pick up new values.
 		"""
 		if self._engine is None:
 			import time
@@ -87,14 +87,27 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			if conf["density"] != "profile":
 				self._profile.narration_density = conf["density"]
 
-			self._review_log = ReviewLog(
-				title="Bitgil 세션 노트",
-				clock=lambda: time.strftime("%H:%M:%S"),
-			)
+			# The review log spans the whole session (across F2 asks and live
+			# runs), so it survives engine rebuilds — only create it once.
+			if self._review_log is None:
+				self._review_log = ReviewLog(
+					title="Bitgil 세션 노트",
+					clock=lambda: time.strftime("%H:%M:%S"),
+				)
 			self._engine = build_engine(
 				provider_name, provider_config, self._profile, review_log=self._review_log
 			)
 		return self._engine, self._profile
+
+	def _reset_engine(self):
+		"""Drop the cached engine so the next use re-reads the settings panel.
+
+		Keeps the session review log intact. Called when a fresh live session
+		starts, so provider / profile / density changes take effect without an
+		NVDA restart.
+		"""
+		self._engine = None
+		self._profile = None
 
 	# --- F1: Live Narrator ------------------------------------------------
 
@@ -119,7 +132,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			from .inference import build_change_detector
 			from .output import SpeechBridge
 
-			# TODO(M3): read profile/provider/interval from the settings panel.
+			# Start each live session from the current settings (provider / profile
+			# / model / density may have changed since the last run).
+			self._reset_engine()
 			engine, profile = self._get_engine_and_profile()
 			self._speech = SpeechBridge(policy="queue")
 			self._narrator = LiveNarrator(
@@ -177,20 +192,46 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		gesture="kb:NVDA+shift+n",
 	)
 	def script_exportReviewNotes(self, gesture):
-		import os
-
 		import ui
 
 		if not self._review_log or len(self._review_log) == 0:
 			ui.message("Bitgil: 저장할 해설 기록이 없습니다")
 			return
+
+		path = self._ask_save_path()
+		if not path:  # user cancelled the dialog
+			return
 		try:
-			# TODO(M3): offer a file-save dialog; for now write to the Desktop.
-			path = os.path.join(
-				os.path.expanduser("~"), "Desktop", "bitgil-notes.review.md"
-			)
 			with open(path, "w", encoding="utf-8") as f:
 				f.write(self._review_log.to_markdown())
 			ui.message(f"Bitgil: 복습 노트를 저장했습니다 — {path}")
 		except Exception as e:
 			ui.message(f"Bitgil 오류: {e}")
+
+	def _ask_save_path(self):
+		"""Prompt for where to save the review note; return a path or None.
+
+		Shows the standard wx file-save dialog. Scripts run on NVDA's main (GUI)
+		thread, so it is safe to open the dialog directly. Defaults to the Desktop
+		with a sensible filename so the common case is a single Enter press.
+		"""
+		import os
+
+		import gui
+		import wx
+
+		default_dir = os.path.join(os.path.expanduser("~"), "Desktop")
+		if not os.path.isdir(default_dir):
+			default_dir = os.path.expanduser("~")
+
+		with wx.FileDialog(
+			gui.mainFrame,
+			"Bitgil 복습 노트 저장",
+			defaultDir=default_dir,
+			defaultFile="bitgil-notes.review.md",
+			wildcard="Markdown (*.md)|*.md",
+			style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+		) as dlg:
+			if dlg.ShowModal() == wx.ID_OK:
+				return dlg.GetPath()
+		return None

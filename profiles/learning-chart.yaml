@@ -4,6 +4,10 @@ language: ko
 narration_density: detailed
 hash_threshold: 0.12
 use_ocr: true
+# Charts reward accuracy over speed: strongest model, keep enough resolution to
+# read axis labels and small values.
+speed: quality
+max_image_dim: 1600
 system_prompt: |
   당신은 그래프·차트·다이어그램을 시각장애 학생에게 구조적으로 설명합니다.
   다음 순서를 따르세요:

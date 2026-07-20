@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>빛길 (Bitgil) — 화면 스트리밍 해설</title>
+	<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+	<main>
+		<h1>빛길 <span lang="en">(Bitgil)</span></h1>
+		<p class="tagline">화면을 공유하면 실시간으로 해설합니다. OS 구분 없이 — 화면은 그냥 화면입니다.</p>
+
+		<div class="controls">
+			<button id="toggle" type="button" aria-describedby="status">화면 공유 시작</button>
+
+			<label for="density">해설 밀도</label>
+			<select id="density">
+				<option value="brief">간략</option>
+				<option value="normal" selected>보통</option>
+				<option value="detailed">상세</option>
+			</select>
+
+			<label for="interval">관찰 주기(초)</label>
+			<input id="interval" type="number" min="0.5" max="10" step="0.5" value="1.5">
+
+			<label class="check">
+				<input id="streamOn" type="checkbox" checked>
+				문장 단위 스트리밍 (F1)
+			</label>
+
+			<label class="check">
+				<input id="interrupt" type="checkbox">
+				새 해설 시 즉시 끼어들기
+			</label>
+
+			<label class="check">
+				<input id="speakOn" type="checkbox" checked>
+				음성 낭독 켜기
+			</label>
+		</div>
+
+		<p id="status" role="status" aria-live="assertive">준비됨. “화면 공유 시작”을 누르세요.</p>
+
+		<section aria-labelledby="log-h">
+			<h2 id="log-h">해설 기록</h2>
+			<ul id="log" aria-live="polite" aria-relevant="additions"></ul>
+		</section>
+
+		<p class="meta" id="meta"></p>
+	</main>
+
+	<!-- Hidden capture plumbing: getDisplayMedia video → canvas → JPEG frames. -->
+	<video id="video" autoplay muted playsinline hidden></video>
+	<canvas id="canvas" hidden></canvas>
+
+	<script src="app.js"></script>
+</body>
+</html>

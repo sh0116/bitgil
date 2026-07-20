@@ -12,6 +12,14 @@ from .base import Message, VisionProvider, VisionResponse
 
 DEFAULT_MODEL = "gpt-4o-mini"  # a fast, low-cost vision model; override via config
 
+# Speed tier → model. gpt-4o-mini is already fast and cheap, so it serves both
+# the fast and balanced tiers; "quality" steps up to full gpt-4o.
+SPEED_MODELS = {
+	"fast": "gpt-4o-mini",
+	"balanced": "gpt-4o-mini",
+	"quality": "gpt-4o",
+}
+
 
 def _to_openai(messages: Sequence[Message]) -> list[dict]:
 	converted: list[dict] = []
@@ -35,6 +43,7 @@ def _to_openai(messages: Sequence[Message]) -> list[dict]:
 
 class OpenAIProvider(VisionProvider):
 	name = "openai"
+	SPEED_MODELS = SPEED_MODELS
 
 	def __init__(self, api_key: str | None = None, model: str = DEFAULT_MODEL):
 		self._api_key = api_key

@@ -7,6 +7,8 @@ hash_threshold: 0.15
 use_ocr: true
 # Slides change slowly — observe less often to save cost and avoid chatter.
 observe_interval: 3.0
+speed: balanced
+max_image_dim: 1366
 system_prompt: |
   당신은 인터넷 강의를 시각장애 학생에게 전달하는 학습 도우미입니다.
   강사가 새 슬라이드로 넘어가면 "새 슬라이드로 넘어갔습니다"라고 알리고,
