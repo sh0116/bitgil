@@ -50,7 +50,17 @@
   엔드포인트: `/narrate`, `/narrate/stream`(F1 문장 스트리밍), `/triage`(트리아지 배선).
 - [x] AWS Bedrock 프로바이더 (`bitgil_core.providers.bedrock_provider`): AWS 자격증명
   체인으로 Claude 호출. 실기기 검증 완료(ap-northeast-2, Claude 3.5 Sonnet, 스캠·권한 팝업 분류).
-- 남은 것: 실제 OS 이벤트 소스(UIA/토스트) 연결 + `SpeechBridge` 배선(실기기)
+- [x] 목표 추적기(`bitgil_core.goal.GoalTracker`) — 최근 활동 컨텍스트를 트리아지
+  관련성 판단에 공급(웹 백엔드 배선).
+- [x] 결정론적 안전 휴리스틱(`bitgil_core.safety`) — 스캠/보안 프롬프트 키워드로
+  LLM 분류를 **상향만**(never downgrade) 보정. 파싱 실패 시에도 스캠 탐지.
+- [x] 웹 클라이언트 마감 — `/configure`(프로파일·밀도 실시간 반영), 프로파일 드롭다운,
+  오류 UX.
+- [x] NVDA 스텁 하니스(`tests/test_addon.py`) — 가짜 NVDA 모듈로 `SpeechBridge` 정책·
+  inference glue를 오프라인 테스트 + `windows-latest` CI 잡(pytest + 애드온 빌드/아티팩트).
+- [x] 애드온 순수 파이썬 의존성 벤더링(PyYAML) — NVDA 내부에서 프로파일 로드 가능.
+- 남은 것(실기기 필요): OS 이벤트 소스(UIA/토스트) 연결 + `SpeechBridge` 실배선;
+  네이티브 의존성(Pillow/imagehash)·프로바이더 SDK 플랫폼 휠 번들.
 - 목표/맥락 추적, 안전 분류기(가짜 백신·스캠 팝업 구분, 보안 프롬프트 자동클릭 금지),
   대화형 질의 + 확인 기반 대리 조작
 - 대상: 특히 어린 시각장애 아동의 Windows·검색·앱 사용 진입장벽 완화 + 교육 모드

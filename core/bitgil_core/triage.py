@@ -26,6 +26,7 @@ import json
 from dataclasses import dataclass
 from typing import List, Optional
 
+from . import safety
 from .providers.base import Message, VisionProvider
 
 # Output actions (map onto SpeechBridge queue/interrupt/defer).
@@ -143,14 +144,23 @@ class InterruptTriage:
 		resp = self.provider.complete(messages, max_tokens=self.max_tokens)
 		cls = _parse_classification(resp.text)
 		if cls is None:
-			# Never drop an event we failed to classify — surface it (queued) with
-			# whatever raw text we have, rather than staying silent.
+			# Model reply was unusable. Still let deterministic safety heuristics
+			# catch obvious scams / security prompts before falling back.
+			probe = EventClassification(
+				category="unknown", urgency="medium", summary=_fallback_text(event)
+			)
+			safety.augment(probe, event)
+			if probe.is_suspected_scam or probe.is_security_prompt:
+				return apply_policy(probe, event)
+			# Never drop an event we couldn't classify — surface it, queued.
 			return TriageDecision(
 				QUEUE, _fallback_text(event), "unknown", "medium",
 				reason="unparsed-classification",
 			)
 		if not cls.summary:
 			cls.summary = _fallback_text(event)
+		# Defense in depth: heuristics can only raise the alarm, never lower it.
+		safety.augment(cls, event)
 		return apply_policy(cls, event)
 
 	def _build_messages(self, event: DesktopEvent, user_goal: str) -> List[Message]:

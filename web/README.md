@@ -43,7 +43,8 @@ BITGIL_AWS_REGION=ap-northeast-2 python web/server.py --provider bedrock
 | `POST /narrate` | JPEG/PNG bytes | `{changed, text, reason}` | 프레임 1회 해설 |
 | `POST /narrate/stream` | JPEG/PNG bytes | 줄 단위 문장 스트림 | F1 문장 스트리밍(체감 지연↓) |
 | `POST /triage` | DesktopEvent JSON | `{action, spoken, ...}` | 이벤트 트리아지(앰비언트 코파일럿) |
-| `GET /config` | — | 프로바이더/프로파일 | 클라이언트 초기화 |
+| `POST /configure` | `{profile, density}` | 갱신된 config | 프로파일·밀도 실시간 변경 |
+| `GET /config` | — | 프로바이더/프로파일/프로파일 목록 | 클라이언트 초기화 |
 
 **트리아지 예시** (브라우저는 OS 이벤트를 못 만들므로 curl/OS 어댑터로 구동):
 

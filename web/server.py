@@ -40,6 +40,7 @@ sys.path.insert(0, os.path.join(_REPO, "core"))
 
 from bitgil_core.change_detect import ChangeDetector  # noqa: E402
 from bitgil_core.engine import NarrationEngine  # noqa: E402
+from bitgil_core.goal import GoalTracker  # noqa: E402
 from bitgil_core.live import iter_sentences  # noqa: E402
 from bitgil_core.profiles import Profile, load_builtin_profiles  # noqa: E402
 from bitgil_core.providers import build_provider  # noqa: E402
@@ -95,9 +96,9 @@ class Bitgil:
 	"""Holds the reused core pipeline + a lock (single-user prototype)."""
 
 	def __init__(self, provider_name: str, model: str, profile_name: str):
-		self.profile = _load_profile(profile_name)
+		self.provider_name = provider_name
 		if provider_name == "demo":
-			provider: VisionProvider = DemoProvider()
+			self.provider: VisionProvider = DemoProvider()
 		else:
 			cfg = {}
 			if model:
@@ -105,22 +106,44 @@ class Bitgil:
 			region = os.environ.get("BITGIL_AWS_REGION")
 			if region:
 				cfg["aws_region"] = region
-			provider = build_provider(provider_name, cfg, speed=self.profile.speed)
-		self.provider_name = provider_name
-		self.engine = NarrationEngine(provider, self.profile)
-		self.detector = ChangeDetector(hash_threshold=self.profile.hash_threshold)
+			profile = _load_profile(profile_name)
+			self.provider = build_provider(provider_name, cfg, speed=profile.speed)
 		# Same provider drives event triage (ambient-copilot path).
-		self.triage = InterruptTriage(provider)
+		self.triage = InterruptTriage(self.provider)
+		self.goal = GoalTracker()
 		self._lock = threading.Lock()
+		self._apply_profile(_load_profile(profile_name))
+
+	def _apply_profile(self, profile: Profile) -> None:
+		self.profile = profile
+		self.engine = NarrationEngine(self.provider, profile)
+		self.detector = ChangeDetector(hash_threshold=profile.hash_threshold)
+
+	def reconfigure(self, profile_name: str = "", density: str = "") -> dict:
+		"""Rebuild the pipeline with a new profile / density (keeps the provider)."""
+		with self._lock:
+			profile = _load_profile(profile_name) if profile_name else self.profile
+			if density and density != "profile":
+				profile.narration_density = density
+			self._apply_profile(profile)
+			self.goal.clear()
+		return self.config()
 
 	def config(self) -> dict:
 		return {
 			"provider": self.provider_name,
 			"profile": self.profile.name,
+			"profiles": self._profile_names(),
 			"density": self.profile.narration_density,
 			"interval": self.profile.observe_interval,
 			"max_image_dim": self.profile.max_image_dim or 1280,
 		}
+
+	@staticmethod
+	def _profile_names() -> list:
+		if os.path.isdir(_PROFILES):
+			return sorted(load_builtin_profiles(_PROFILES).keys())
+		return ["general"]
 
 	def narrate(self, frame: bytes) -> dict:
 		with self._lock:
@@ -128,6 +151,7 @@ class Bitgil:
 			if not result.changed:
 				return {"changed": False, "text": "", "reason": "no-change"}
 			text = self.engine.narrate(frame).text
+			self.goal.note(text)  # feed activity context for triage relevance
 			return {"changed": True, "text": text, "reason": result.reason}
 
 	def narrate_stream(self, frame: bytes):
@@ -136,7 +160,11 @@ class Bitgil:
 		try:
 			if not self.detector.evaluate(frame).changed:
 				return
-			yield from iter_sentences(self.engine.narrate_stream(frame))
+			spoken = []
+			for sentence in iter_sentences(self.engine.narrate_stream(frame)):
+				spoken.append(sentence)
+				yield sentence
+			self.goal.note(" ".join(spoken))
 		finally:
 			self._lock.release()
 
@@ -154,8 +182,10 @@ class Bitgil:
 			text=str(data.get("text", "")),
 			stole_focus=bool(data.get("stole_focus", False)),
 		)
+		# Explicit goal wins; otherwise fall back to recent activity context.
+		goal = str(data.get("user_goal", "")) or self.goal.context()
 		with self._lock:
-			d = self.triage.triage(event, user_goal=str(data.get("user_goal", "")))
+			d = self.triage.triage(event, user_goal=goal)
 		return {
 			"action": d.action,
 			"spoken": d.spoken,
@@ -233,6 +263,23 @@ class Handler(BaseHTTPRequestHandler):
 				self._send_json({"error": "invalid json"}, status=400)
 				return
 			self._send_json(self.bitgil.triage_event(data))
+			return
+
+		if self.path == "/configure":
+			try:
+				data = json.loads(self._body() or b"{}")
+			except ValueError:
+				self._send_json({"error": "invalid json"}, status=400)
+				return
+			try:
+				cfg = self.bitgil.reconfigure(
+					profile_name=str(data.get("profile", "")),
+					density=str(data.get("density", "")),
+				)
+			except SystemExit as e:  # unknown profile name
+				self._send_json({"error": str(e)}, status=400)
+				return
+			self._send_json(cfg)
 			return
 
 		self.send_error(404, "not found")

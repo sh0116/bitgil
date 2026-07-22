@@ -160,19 +160,50 @@ function stop() {
 
 $("toggle").addEventListener("click", () => (stream ? stop() : start()));
 
-// Reflect backend config (provider/profile) and default the interval.
+function applyConfig(cfg) {
+	maxDim = cfg.max_image_dim || maxDim;
+	if (cfg.interval) $("interval").value = cfg.interval;
+	if (cfg.density) $("density").value = cfg.density;
+	if (Array.isArray(cfg.profiles)) {
+		const sel = $("profile");
+		sel.innerHTML = "";
+		for (const name of cfg.profiles) {
+			const o = document.createElement("option");
+			o.value = o.textContent = name;
+			if (name === cfg.profile) o.selected = true;
+			sel.appendChild(o);
+		}
+	}
+	$("meta").textContent = `프로바이더: ${cfg.provider} · 프로파일: ${cfg.profile}`;
+	if (cfg.provider === "demo") {
+		$("meta").textContent += " · (데모 프로바이더 — 실제 해설은 --provider로 지정)";
+	}
+}
+
+// Push profile / density changes to the backend so they take effect.
+async function reconfigure() {
+	try {
+		const res = await fetch("/configure", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ profile: $("profile").value, density: $("density").value }),
+		});
+		const cfg = await res.json();
+		if (cfg.error) { setStatus("설정 오류: " + cfg.error); return; }
+		applyConfig(cfg);
+		setStatus(`설정 적용됨 — 프로파일 ${cfg.profile}, 밀도 ${cfg.density}`);
+	} catch (e) {
+		setStatus("설정 통신 오류: " + e.message);
+	}
+}
+$("profile").addEventListener("change", reconfigure);
+$("density").addEventListener("change", reconfigure);
+
+// Reflect backend config on load.
 fetch("/config")
 	.then((r) => r.json())
-	.then((cfg) => {
-		maxDim = cfg.max_image_dim || maxDim;
-		if (cfg.interval) $("interval").value = cfg.interval;
-		if (cfg.density) $("density").value = cfg.density;
-		$("meta").textContent = `프로바이더: ${cfg.provider} · 프로파일: ${cfg.profile}`;
-		if (cfg.provider === "demo") {
-			$("meta").textContent += " · (데모 프로바이더 — 실제 해설은 --provider로 지정)";
-		}
-	})
-	.catch(() => {});
+	.then(applyConfig)
+	.catch(() => setStatus("백엔드에 연결할 수 없습니다. 서버가 실행 중인지 확인하세요."));
 
 // Voice list loads asynchronously in some browsers.
 if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = () => {};

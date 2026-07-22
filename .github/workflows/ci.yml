@@ -21,6 +21,28 @@ jobs:
       - name: Run tests
         run: pytest -q
 
+  addon-windows:
+    name: Add-on smoke (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"  # matches NVDA's bundled Python
+      - name: Install core (dev)
+        run: pip install -e ./core[dev]
+      # The add-on layer is tested via the NVDA-stub harness (tests/test_addon.py),
+      # which runs anywhere. Running it on Windows too guards Windows-Python quirks.
+      - name: Run tests
+        run: pytest -q
+      - name: Build .nvda-addon
+        run: python scripts/build_addon.py
+      - name: Upload add-on artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitgil-nvda-addon
+          path: dist/*.nvda-addon
+
   license-check:
     name: License check
     runs-on: ubuntu-latest
