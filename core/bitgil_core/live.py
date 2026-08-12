@@ -13,43 +13,10 @@ addon's SpeechBridge.
 from __future__ import annotations
 
 import threading
-from typing import Callable, Iterable, Iterator, List, Optional
+from typing import Callable, List, Optional
 
 from .change_detect import ChangeDetector
 from .engine import NarrationEngine
-
-# Characters that close a spoken unit. Includes Korean/CJK and ASCII enders.
-_SENTENCE_ENDS = ("。", "！", "？", ".", "!", "?", "\n")
-
-
-def iter_sentences(chunks: Iterable[str]) -> Iterator[str]:
-	"""Aggregate streamed text chunks into whole sentences.
-
-	Provider streams arrive in arbitrary fragments; speaking each fragment makes
-	NVDA stutter. This buffers until a sentence boundary, then flushes — so the
-	user hears complete phrases as they form. Any trailing text without a
-	terminator is flushed at the end.
-	"""
-	buffer = ""
-	for chunk in chunks:
-		buffer += chunk
-		while True:
-			idx = _first_end(buffer)
-			if idx == -1:
-				break
-			sentence = buffer[: idx + 1].strip()
-			buffer = buffer[idx + 1 :]
-			if sentence:
-				yield sentence
-	tail = buffer.strip()
-	if tail:
-		yield tail
-
-
-def _first_end(text: str) -> int:
-	positions = [text.find(e) for e in _SENTENCE_ENDS]
-	positions = [p for p in positions if p != -1]
-	return min(positions) if positions else -1
 
 
 class LiveNarrator:
@@ -77,7 +44,8 @@ class LiveNarrator:
 		if not self.detector.evaluate(frame).changed:
 			return None
 		spoken: List[str] = []
-		for sentence in iter_sentences(self.engine.narrate_stream(frame)):
+		# narrate_stream already yields whole, glossary-applied sentences.
+		for sentence in self.engine.narrate_stream(frame):
 			self.speak(sentence)
 			spoken.append(sentence)
 		return " ".join(spoken) if spoken else None

@@ -14,7 +14,7 @@ from typing import Iterator, Optional
 
 from .context import SessionContext
 from .image_ops import downscale_png
-from .postprocess import apply_glossary, cap_length
+from .postprocess import apply_glossary, cap_length, iter_sentences
 from .profiles import Profile
 from .providers.base import VisionProvider
 from .review import ReviewLog
@@ -77,19 +77,24 @@ class NarrationEngine:
 	def narrate_stream(self, frame: bytes, question: str = "") -> Iterator[str]:
 		"""Stream narration sentence-by-sentence for low perceived latency (F1).
 
-		Yields glossary-substituted chunks as they arrive; the full text is
-		recorded to context once the stream completes. Length capping is not
-		applied mid-stream (it needs the whole text), so streaming honours the
-		profile prompt for brevity rather than a hard char cap.
+		Raw provider chunks are first aggregated into whole sentences, then
+		glossary substitution is applied per *sentence* and each is yielded ready
+		to speak. Substituting per raw chunk (the earlier approach) silently missed
+		terms split across chunk boundaries — e.g. "HP" streamed as "H" then "P"
+		would never become "체력". The full text is recorded to context once the
+		stream completes. Length capping is not applied mid-stream (it needs the
+		whole text), so streaming honours the profile prompt for brevity rather
+		than a hard char cap.
 		"""
 		frame = self._prepare_frame(frame)
 		messages = self.context.build_messages(frame, user_text=question)
+		raw = self.provider.stream(messages, max_tokens=self._pick_max_tokens())
 		parts: list[str] = []
-		for chunk in self.provider.stream(messages, max_tokens=self._pick_max_tokens()):
-			piece = apply_glossary(chunk, self.profile.glossary)
+		for sentence in iter_sentences(raw):
+			piece = apply_glossary(sentence, self.profile.glossary)
 			parts.append(piece)
 			yield piece
-		self._remember("".join(parts))
+		self._remember(" ".join(parts))
 
 	def _pick_max_tokens(self) -> int:
 		# Roughly 3 chars/token for Korean; give headroom over the char budget.

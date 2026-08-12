@@ -41,7 +41,6 @@ sys.path.insert(0, os.path.join(_REPO, "core"))
 from bitgil_core.change_detect import ChangeDetector  # noqa: E402
 from bitgil_core.engine import NarrationEngine  # noqa: E402
 from bitgil_core.goal import GoalTracker  # noqa: E402
-from bitgil_core.live import iter_sentences  # noqa: E402
 from bitgil_core.profiles import Profile, load_builtin_profiles  # noqa: E402
 from bitgil_core.providers import build_provider  # noqa: E402
 from bitgil_core.providers.base import (  # noqa: E402
@@ -161,7 +160,8 @@ class Bitgil:
 			if not self.detector.evaluate(frame).changed:
 				return
 			spoken = []
-			for sentence in iter_sentences(self.engine.narrate_stream(frame)):
+			# narrate_stream already yields whole, glossary-applied sentences.
+			for sentence in self.engine.narrate_stream(frame):
 				spoken.append(sentence)
 				yield sentence
 			self.goal.note(" ".join(spoken))
