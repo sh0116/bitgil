@@ -6,7 +6,8 @@ from PIL import Image
 
 from bitgil_core.change_detect import ChangeDetector
 from bitgil_core.engine import NarrationEngine
-from bitgil_core.live import LiveNarrator, iter_sentences
+from bitgil_core.live import LiveNarrator
+from bitgil_core.postprocess import iter_sentences
 from bitgil_core.profiles import Profile
 from bitgil_core.providers.base import VisionProvider, VisionResponse
 
@@ -56,11 +57,56 @@ def test_iter_sentences_handles_ascii_and_cjk_enders():
 	assert list(iter_sentences(["A! ", "B? ", "C"])) == ["A!", "B?", "C"]
 
 
+def test_iter_sentences_keeps_decimals_intact():
+	# The period inside a decimal must NOT split the number — this is the core
+	# math/chart scenario (수식 낭독). Chunk boundaries deliberately fall on the dot.
+	chunks = ["최댓값은 ", "3.5", "입니다. ", "기울기는 약 ", "1.25", "배."]
+	assert list(iter_sentences(chunks)) == ["최댓값은 3.5입니다.", "기울기는 약 1.25배."]
+
+
+def test_iter_sentences_waits_across_chunk_for_decimal():
+	# A period at the very end of a chunk is ambiguous until the next chunk shows
+	# a digit follows → the two chunks join into one number, not two sentences.
+	assert list(iter_sentences(["원주율은 3.", "14입니다."])) == ["원주율은 3.14입니다."]
+
+
+def test_iter_sentences_keeps_ellipsis_intact():
+	# "..." must not spray "." "." fragments; it stays with its sentence.
+	assert list(iter_sentences(["잠시만요...", " 계속합니다."])) == ["잠시만요...", "계속합니다."]
+
+
+def test_iter_sentences_period_ending_a_chunk_still_splits():
+	# A genuine sentence-final period at a chunk edge still splits once the next
+	# char proves it isn't a decimal.
+	assert list(iter_sentences(["끝.", " 다음."])) == ["끝.", "다음."]
+
+
 # --- live loop --------------------------------------------------------------
 
 def _engine(chunks):
 	profile = Profile(name="t", system_prompt="설명", glossary={"HP": "체력"})
 	return NarrationEngine(StreamProvider(chunks), profile)
+
+
+def test_stream_applies_glossary_across_chunk_boundary():
+	# A glossary term split across streamed chunks ("H" + "P") must still be
+	# substituted in F1 — the engine now aggregates to sentences before glossary.
+	profile = Profile(name="t", system_prompt="s", glossary={"HP": "체력", "Strength": "힘"})
+	engine = NarrationEngine(
+		StreamProvider(["현재 ", "H", "P", "가 낮고 ", "Str", "ength", "가 높습니다."]), profile
+	)
+	assert list(engine.narrate_stream(b"img")) == ["현재 체력가 낮고 힘가 높습니다."]
+
+
+def test_stream_and_nonstream_glossary_agree():
+	# F1 (stream) and F2 (blocking) must produce the same substituted text even
+	# when the provider fragments a glossary term across chunks.
+	chunks = ["H", "P", " 회복. ", "Str", "ength", " 증가."]
+	profile = Profile(name="t", system_prompt="s", glossary={"HP": "체력", "Strength": "힘"})
+	streamed = " ".join(NarrationEngine(StreamProvider(chunks), profile).narrate_stream(b"img"))
+	blocking = NarrationEngine(StreamProvider(chunks), profile).narrate(b"img").text
+	assert "HP" not in streamed and "Strength" not in streamed
+	assert streamed == blocking == "체력 회복. 힘 증가."
 
 
 def test_poll_narrates_on_change_and_speaks_sentences():
