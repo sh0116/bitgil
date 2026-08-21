@@ -113,6 +113,57 @@ def test_focus_stealing_modal_interrupts():
 	assert d.action == INTERRUPT
 
 
+def test_focus_stealing_permission_request_needs_confirmation():
+	# A permission_request that grabbed focus interrupts via rule 3 even if the
+	# model failed to set is_security_prompt — and because it's security-sensitive,
+	# it must still gate confirmation so the copilot never auto-clicks it.
+	d = apply_policy(
+		_cls(urgency="low", category="permission_request", is_security_prompt=False),
+		DesktopEvent(kind="permission", stole_focus=True),
+	)
+	assert d.action == INTERRUPT
+	assert d.needs_confirmation is True
+
+
+def test_focus_stealing_plain_modal_does_not_force_confirmation():
+	# A non-security modal (e.g. an app dialog) interrupts but should not claim to
+	# need confirmation — that flag is reserved for security/scam decisions.
+	d = apply_policy(
+		_cls(urgency="low", category="modal_dialog"),
+		DesktopEvent(kind="dialog", stole_focus=True),
+	)
+	assert d.action == INTERRUPT
+	assert d.needs_confirmation is False
+
+
+def test_unrecognized_urgency_is_queued_not_suppressed():
+	# A non-canonical urgency ("critical") must never fall through to a silent
+	# drop — an important event with an off-schema label is surfaced, queued.
+	d = apply_policy(
+		_cls(urgency="critical", relevant_to_goal=False),
+		DesktopEvent(kind="error", text="디스크 오류"),
+	)
+	assert d.action == QUEUE
+	assert d.reason == "queue-unrecognized-urgency"
+	assert d.spoken  # not silence
+
+
+def test_only_explicit_low_urgency_is_suppressed():
+	d = apply_policy(_cls(urgency="low", relevant_to_goal=False), DesktopEvent(kind="notification"))
+	assert d.action == SUPPRESS
+
+
+def test_interrupt_uses_event_fallback_when_summary_missing():
+	# Rules 3/4 must not speak an empty string when the model gave no summary —
+	# fall back to the event's own text so the user always hears something.
+	d = apply_policy(
+		_cls(urgency="high", summary=""),
+		DesktopEvent(kind="error", text="업데이트 실패"),
+	)
+	assert d.action == INTERRUPT
+	assert d.spoken == "업데이트 실패"
+
+
 # --- InterruptTriage: classification + policy -------------------------------
 
 def test_triage_parses_json_and_applies_policy():

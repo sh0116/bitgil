@@ -32,13 +32,33 @@ _SCAM_SIGNALS = (
 	"claim your prize",
 	"you have won",
 	"virus detected",
+	# English tech-support-scam phrasing (fake "your PC is infected, call us").
+	"your computer is infected",
+	"your pc is infected",
+	"computer is infected",
+	"call microsoft",
+	"call apple support",
+	"tech support",
+	"call this number",
+	"call the number",
 )
 
 # System / permission / credential prompts — never auto-act on these.
 _SECURITY_SIGNALS = (
 	"권한을 허용",
+	"권한 요청",
+	"권한을 요청",
 	"액세스를 허용",
 	"접근하도록 허용",
+	"접근을 허용",
+	"접근 허용",
+	"허용하시겠습니까",
+	"허용하시겠어요",
+	"허용할까요",
+	"카메라 접근",
+	"마이크 접근",
+	"위치 접근",
+	"위치 정보 접근",
 	"관리자 권한",
 	"사용자 계정 컨트롤",
 	"비밀번호를 입력",
@@ -47,6 +67,8 @@ _SECURITY_SIGNALS = (
 	"user account control",
 	"uac",
 	"grant access",
+	"allow access",
+	"wants to access",
 	"sign in",
 )
 

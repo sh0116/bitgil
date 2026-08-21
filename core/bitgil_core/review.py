@@ -41,7 +41,10 @@ class ReviewLog:
 	model: str = ""
 
 	def record(self, text: str) -> None:
-		text = text.strip()
+		# Collapse ALL runs of whitespace (incl. internal newlines/tabs) to single
+		# spaces so each entry stays one Markdown bullet — a raw "\n" mid-text would
+		# otherwise split the line and break the list rendering.
+		text = " ".join(text.split())
 		if not text:
 			return
 		ts = self.clock() if self.clock is not None else ""

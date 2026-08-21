@@ -43,15 +43,32 @@ class Profile:
 
 	@classmethod
 	def from_yaml(cls, path: str | Path) -> "Profile":
-		data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+		path = Path(path)
+		data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+		if not isinstance(data, dict):
+			raise ValueError(f"profile {path} is not a YAML mapping")
 		known = {f for f in cls.__dataclass_fields__}
-		return cls(**{k: v for k, v in data.items() if k in known})
+		kwargs = {k: v for k, v in data.items() if k in known}
+		# `name` is the only required field; default it to the filename stem so a
+		# profile that omits it loads (and stays addressable) instead of crashing.
+		kwargs.setdefault("name", path.stem)
+		return cls(**kwargs)
 
 
 def load_builtin_profiles(directory: str | Path) -> Dict[str, Profile]:
-	"""Load every *.yaml under `directory` into a name -> Profile map."""
+	"""Load every *.yaml under `directory` into a name -> Profile map.
+
+	A single malformed file (bad YAML, wrong shape) is skipped rather than
+	aborting the whole load — one broken community pack must not take down every
+	other profile. Skips are reported to stderr for debugging.
+	"""
 	out: Dict[str, Profile] = {}
 	for p in sorted(Path(directory).glob("*.yaml")):
-		prof = Profile.from_yaml(p)
+		try:
+			prof = Profile.from_yaml(p)
+		except (yaml.YAMLError, ValueError, TypeError) as exc:
+			import sys
+			print(f"bitgil: skipping malformed profile {p}: {exc}", file=sys.stderr)
+			continue
 		out[prof.name] = prof
 	return out

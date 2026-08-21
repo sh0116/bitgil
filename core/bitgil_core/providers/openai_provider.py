@@ -78,6 +78,11 @@ class OpenAIProvider(VisionProvider):
 			stream=True,
 		)
 		for chunk in stream:
+			# Some chunks carry no choices (e.g. the trailing usage-only chunk when
+			# stream_options.include_usage is set) — indexing [0] there raises
+			# IndexError and kills the stream. Skip them.
+			if not chunk.choices:
+				continue
 			delta = chunk.choices[0].delta.content
 			if delta:
 				yield delta

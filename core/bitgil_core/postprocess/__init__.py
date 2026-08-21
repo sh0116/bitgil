@@ -9,6 +9,7 @@ Between the raw LLM output and NVDA's voice we apply, in order:
 
 from __future__ import annotations
 
+import re
 from typing import Dict, Iterable, Iterator
 
 # --- sentence aggregation ---------------------------------------------------
@@ -81,11 +82,20 @@ def apply_glossary(text: str, glossary: Dict[str, str]) -> str:
 	"""Replace terms with their profile-defined readings.
 
 	e.g. {"HP": "체력", "Strength": "힘"} so the voice speaks natural Korean.
-	Longest keys first to avoid partial-overlap surprises.
+
+	Done in a SINGLE left-to-right pass (regex alternation, longest key first) so
+	that a replacement's output is never re-scanned by a later key. The naive
+	per-term ``str.replace`` loop cascaded: glossary {"HP":"체력바","바":"BAR"} on
+	"HP" produced "체력BAR" because the injected "바" got rewritten again. Longest
+	key first also lets a multi-char term win over a substring of it at the same
+	position. Substring matching (no word boundaries) is intentional — CJK terms
+	attach to adjacent characters with no spaces.
 	"""
-	for term in sorted(glossary, key=len, reverse=True):
-		text = text.replace(term, glossary[term])
-	return text
+	if not glossary:
+		return text
+	keys = sorted(glossary, key=len, reverse=True)
+	pattern = re.compile("|".join(re.escape(k) for k in keys))
+	return pattern.sub(lambda m: glossary[m.group(0)], text)
 
 
 def cap_length(text: str, max_chars: int) -> str:
