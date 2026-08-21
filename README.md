@@ -1,9 +1,11 @@
 # 빛길 (Bitgil)
 
-> 시각장애인을 위한 LLM 실시간 화면 해설 NVDA 애드온 — 게임과 학습을 중심으로
+> 시각장애인을 위한 LLM 실시간 화면 해설 — **한국어 학습(인강·도표·수식)을 우선**으로,
+> 스크린리더의 사각지대를 메우는 오픈소스 도구
 >
-> An open-source NVDA add-on that uses vision LLMs to narrate the screen in real time
-> for blind and low-vision users — focused on gaming and learning.
+> An open-source tool that uses vision LLMs to narrate the screen in real time for
+> blind and low-vision users — leading with Korean-language learning (lectures,
+> charts, equations), delivered as an NVDA add-on and a platform-agnostic web client.
 
 [![License: GPLv2 (addon)](https://img.shields.io/badge/addon-GPLv2-blue.svg)](LICENSE)
 [![License: MIT (core)](https://img.shields.io/badge/core-MIT-green.svg)](core/LICENSE)
@@ -13,9 +15,24 @@
 
 ## 한 줄 요약 / One-liner
 
-스크린리더(NVDA)가 읽지 못하는 화면 — 게임, 그래프와 도표가 가득한 학습 자료, 접근성이
+스크린리더(NVDA)가 읽지 못하는 화면 — 그래프와 도표가 가득한 강의 자료, 수식, 접근성이
 구현되지 않은 프로그램 — 을 비전 LLM이 실시간으로 추론하여, 시각장애인 곁에서 함께 화면을
-봐주는 친구처럼 음성으로 해설해주는 오픈소스 NVDA 애드온.
+봐주는 친구처럼 음성으로 해설해주는 오픈소스 도구.
+
+## 어디에 집중하나 / Focus (근거 기반)
+
+1차 웨지는 **한국어 학습**(인강·도표·수식)이다. 이유는 근거에 있다:
+
+- **언어 moat:** NVDA 애드온 스토어 503개 중 한국어(`ko`) 번역이 **0개**. 한국어 학습
+  맥락은 비어 있다.
+- **충족되지 않은 실수요:** 시각장애인 230명 중 학업 도표를 AI로 읽는 비율은 **7.5%**,
+  **50%는 여전히 사람에게 물어본다**. "누가 대신 봐줘야 하는" 문제가 남아 있다.
+- **게임은 후속:** VLM 전용 게임 해설은 성공률을 못 높인다는 연구(GamerAstra)로 근거가
+  반박된다. 게임 프로파일은 유지하되 flagship에서 내렸다.
+
+또한 국내 유통이 센스리더 보조금 채널 중심이라 **무료 애드온이 배제**되는 구조여서,
+플랫폼 무관 **웹 클라이언트 + MIT 코어**를 애드온만큼(또는 그 이상) 중요한 자산으로 본다.
+자세한 근거·출처는 [docs/evidence.md](docs/evidence.md).
 
 ## 왜 만드는가 / Why
 
