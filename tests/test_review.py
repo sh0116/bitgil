@@ -72,6 +72,17 @@ def test_review_log_omits_provenance_line_when_unknown():
 	assert ">\n>" not in md
 
 
+def test_review_log_collapses_internal_newlines_into_one_bullet():
+	# A narration containing an internal newline/tab must not split into two
+	# Markdown list items — each entry stays a single bullet.
+	log = ReviewLog(title="세션", clock=lambda: "T")
+	log.record("첫 줄\n둘째 줄\t셋째")
+	md = log.to_markdown()
+	assert "- **T** — 첫 줄 둘째 줄 셋째" in md
+	# Exactly one bullet line was produced for the entry.
+	assert md.count("\n- ") == 1
+
+
 def test_engine_appends_to_review_log():
 	log = ReviewLog(clock=lambda: "T")
 	engine = NarrationEngine(FixedProvider("체력이 줄었습니다."), Profile(name="t"), review_log=log)

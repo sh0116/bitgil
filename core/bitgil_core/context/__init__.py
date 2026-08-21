@@ -19,6 +19,9 @@ class SessionContext:
 		self._history: Deque[str] = deque(maxlen=history_size)
 
 	def record_narration(self, text: str) -> None:
+		text = text.strip()
+		if not text:
+			return  # an empty stream must not push a blank recap bullet
 		self._history.append(text)
 
 	def recent(self) -> List[str]:
@@ -32,7 +35,8 @@ class SessionContext:
 		"""
 		msgs: List[Message] = [Message(role="system", text=self.system_prompt)]
 		if self._history:
-			recap = "이전 해설(최근순):\n" + "\n".join(f"- {h}" for h in self._history)
+			# Most-recent first, matching the label — the deque stores chronologically.
+			recap = "이전 해설(최근순):\n" + "\n".join(f"- {h}" for h in reversed(self._history))
 			msgs.append(Message(role="system", text=recap))
 		msgs.append(Message(role="user", text=user_text, image=frame))
 		return msgs

@@ -154,7 +154,14 @@ class Bitgil:
 			return {"changed": True, "text": text, "reason": result.reason}
 
 	def narrate_stream(self, frame: bytes):
-		"""Yield narration sentence-by-sentence for low perceived latency (F1)."""
+		"""Yield narration sentence-by-sentence for low perceived latency (F1).
+
+		The pipeline lock is deliberately held for the whole stream: this is a
+		single-user prototype (see class docstring), so serializing pipeline access
+		— rather than interleaving a second request's mutations of the shared
+		engine/detector/goal — is the correct trade-off here. A multi-user server
+		would give each session its own engine instead; tracked in docs/qa.md §5.
+		"""
 		self._lock.acquire()
 		try:
 			if not self.detector.evaluate(frame).changed:
@@ -196,8 +203,15 @@ class Bitgil:
 		}
 
 
+class _BadRequest(Exception):
+	"""A malformed request the handler should answer with HTTP 400."""
+
+
 class Handler(BaseHTTPRequestHandler):
 	bitgil: Bitgil = None  # set in main()
+	# A captured screen frame is a few hundred KB; cap well above that so a bogus
+	# or hostile Content-Length can't make the server try to buffer gigabytes.
+	_MAX_BODY = 32 * 1024 * 1024
 
 	def _send_json(self, obj: dict, status: int = 200) -> None:
 		body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
@@ -229,36 +243,49 @@ class Handler(BaseHTTPRequestHandler):
 			self._send_json(self.bitgil.config())
 			return
 		rel = "index.html" if self.path in ("/", "") else self.path.lstrip("/")
-		# Prevent path traversal; serve only from the static dir.
+		# Prevent path traversal; serve only from *inside* the static dir. The
+		# separator on the prefix matters — a bare startswith(_STATIC) would also
+		# accept a sibling like "<static>-secrets/".
 		safe = os.path.normpath(os.path.join(_STATIC, rel))
-		if not safe.startswith(_STATIC):
+		if safe != _STATIC and not safe.startswith(_STATIC + os.sep):
 			self.send_error(403, "forbidden")
 			return
 		self._send_file(safe)
 
 	def _body(self) -> bytes:
-		length = int(self.headers.get("Content-Length", 0))
+		raw = self.headers.get("Content-Length", "")
+		try:
+			length = int(raw) if raw else 0
+		except ValueError:
+			raise _BadRequest("invalid Content-Length")
+		if length < 0 or length > self._MAX_BODY:
+			raise _BadRequest("body too large")
 		return self.rfile.read(length) if length > 0 else b""
 
 	def do_POST(self):  # noqa: N802
+		try:
+			body = self._body()
+		except _BadRequest as e:
+			self._send_json({"error": str(e)}, status=400)
+			return
+
 		if self.path == "/narrate":
-			frame = self._body()
-			if not frame:
+			if not body:
 				self._send_json({"error": "empty body"}, status=400)
 				return
 			try:
-				self._send_json(self.bitgil.narrate(frame))
+				self._send_json(self.bitgil.narrate(body))
 			except Exception as e:  # never crash the loop; surface as spoken error
 				self._send_json({"changed": True, "text": f"오류: {e}", "reason": "error"})
 			return
 
 		if self.path == "/narrate/stream":
-			self._stream_narrate(self._body())
+			self._stream_narrate(body)
 			return
 
 		if self.path == "/triage":
 			try:
-				data = json.loads(self._body() or b"{}")
+				data = json.loads(body or b"{}")
 			except ValueError:
 				self._send_json({"error": "invalid json"}, status=400)
 				return
@@ -267,7 +294,7 @@ class Handler(BaseHTTPRequestHandler):
 
 		if self.path == "/configure":
 			try:
-				data = json.loads(self._body() or b"{}")
+				data = json.loads(body or b"{}")
 			except ValueError:
 				self._send_json({"error": "invalid json"}, status=400)
 				return

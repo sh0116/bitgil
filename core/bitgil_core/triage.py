@@ -107,15 +107,31 @@ def apply_policy(cls: EventClassification, event: DesktopEvent) -> TriageDecisio
 		or cls.suggested_action == "needs_user_decision"
 		or (event.stole_focus and cls.category in ("modal_dialog", "permission_request"))
 	):
-		return TriageDecision(INTERRUPT, cls.summary, cls.category, cls.urgency, reason="attention-now")
+		# A permission_request is inherently security-sensitive: even if the model
+		# didn't set is_security_prompt (a miss), the copilot must never auto-act on
+		# it — carry the confirmation flag through this branch too.
+		needs_conf = cls.category == "permission_request"
+		return TriageDecision(
+			INTERRUPT, cls.summary or _fallback_text(event), cls.category, cls.urgency,
+			needs_confirmation=needs_conf, reason="attention-now",
+		)
 
 	# 4. Worth mentioning, but not worth cutting in: relevant to the current
 	#    goal, medium urgency, or it stole focus (context changed — don't drop).
 	if cls.relevant_to_goal or cls.urgency == "medium" or event.stole_focus:
-		return TriageDecision(QUEUE, cls.summary, cls.category, cls.urgency, reason="queue")
+		return TriageDecision(
+			QUEUE, cls.summary or _fallback_text(event), cls.category, cls.urgency, reason="queue"
+		)
 
-	# 5. Low-urgency, irrelevant chatter (ads, background notifications) — log only.
-	return TriageDecision(SUPPRESS, "", cls.category, cls.urgency, reason="low-value")
+	# 5. Only an explicitly LOW-urgency, irrelevant event is dropped (ads,
+	#    background chatter). An unrecognized urgency value ("critical", "urgent",
+	#    …) must NOT be silently suppressed — surface it, queued.
+	if cls.urgency == "low":
+		return TriageDecision(SUPPRESS, "", cls.category, cls.urgency, reason="low-value")
+	return TriageDecision(
+		QUEUE, cls.summary or _fallback_text(event), cls.category, cls.urgency,
+		reason="queue-unrecognized-urgency",
+	)
 
 
 _SYSTEM_PROMPT = """당신은 시각장애인 사용자의 데스크톱 코파일럿입니다. 화면에 방금 나타난
