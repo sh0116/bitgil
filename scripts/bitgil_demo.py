@@ -85,10 +85,14 @@ def main() -> None:
 	# --model (if given) wins; otherwise the profile's speed tier picks the model.
 	provider = build_provider(args.provider, provider_config, speed=profile.speed)
 
-	review = ReviewLog(clock=lambda: time.strftime("%H:%M:%S"))
+	model = getattr(provider, "model", "?")
+	review = ReviewLog(
+		clock=lambda: time.strftime("%H:%M:%S"),
+		provider=provider.name,
+		model=model,
+	)
 	engine = NarrationEngine(provider, profile, review_log=review)
 
-	model = getattr(provider, "model", "?")
 	print(
 		f"[profile={profile.name} provider={provider.name} model={model} "
 		f"speed={profile.speed} density={profile.narration_density}]"
