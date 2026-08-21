@@ -81,10 +81,16 @@ def apply_policy(cls: EventClassification, event: DesktopEvent) -> TriageDecisio
 	prompt", "always warn on a suspected scam", "never auto-confirm" rules live.
 	Ordered by priority; the first matching rule wins.
 	"""
-	# 1. Suspected scam — always surface, loudly, with an explicit warning.
+	# 1. Suspected scam — always surface, loudly, with an explicit warning, and
+	#    flag that any action on it must be user-confirmed. A phishing/fake-AV
+	#    popup is exactly where an unattended proxy click does the most harm, so
+	#    needs_confirmation must be set here just as it is for security prompts.
 	if cls.is_suspected_scam:
 		warn = "주의: 사기(스캠)로 의심되는 창입니다. " + (cls.summary or _fallback_text(event))
-		return TriageDecision(INTERRUPT, warn, cls.category, "high", reason="suspected-scam")
+		return TriageDecision(
+			INTERRUPT, warn, cls.category, "high",
+			needs_confirmation=True, reason="suspected-scam",
+		)
 
 	# 2. Security / permission prompt — always surface, and flag that any action
 	#    on it must be user-confirmed (the copilot never clicks these itself).

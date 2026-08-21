@@ -56,6 +56,21 @@ def test_suspected_scam_interrupts_with_warning():
 	assert d.action == INTERRUPT
 	assert "사기" in d.spoken  # explicit warning prepended
 	assert d.reason == "suspected-scam"
+	# A scam popup is the single worst place for an unattended proxy click, so it
+	# must gate confirmation just like a security prompt. This assertion was the
+	# missing coverage that let the flag regress.
+	assert d.needs_confirmation is True
+
+
+def test_suspected_scam_takes_priority_over_security_flag():
+	# When both fire, the scam warning wins the ordering, and confirmation is
+	# still required either way.
+	d = apply_policy(
+		_cls(urgency="high", is_suspected_scam=True, is_security_prompt=True),
+		DesktopEvent(kind="dialog"),
+	)
+	assert d.reason == "suspected-scam"
+	assert d.needs_confirmation is True
 
 
 def test_low_urgency_irrelevant_notification_is_suppressed():
