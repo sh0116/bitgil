@@ -93,10 +93,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				self._review_log = ReviewLog(
 					title="Bitgil 세션 노트",
 					clock=lambda: time.strftime("%H:%M:%S"),
+					provider=provider_name,
+					model=conf["model"] or "",
 				)
 			self._engine = build_engine(
 				provider_name, provider_config, self._profile, review_log=self._review_log
 			)
+			# When no model was pinned in settings, the speed tier picked one —
+			# record what actually ran so the exported note's provenance is real.
+			if not self._review_log.model:
+				self._review_log.model = getattr(
+					getattr(self._engine, "provider", None), "model", ""
+				) or ""
 		return self._engine, self._profile
 
 	def _reset_engine(self):
