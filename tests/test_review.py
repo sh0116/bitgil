@@ -72,6 +72,37 @@ def test_review_log_omits_provenance_line_when_unknown():
 	assert ">\n>" not in md
 
 
+def test_merge_provenance_sets_initial_values():
+	log = ReviewLog(title="세션", clock=lambda: "12:00")
+	log.merge_provenance("anthropic", "claude-opus-4-8")
+	log.record("해설")
+	assert "> 제공자: anthropic · 모델: claude-opus-4-8 · 생성: 12:00" in log.to_markdown()
+
+
+def test_merge_provenance_dedupes_repeat_builds():
+	# _reset_engine rebuilds with the same settings → provenance must not duplicate.
+	log = ReviewLog(title="세션")
+	log.merge_provenance("anthropic", "claude-opus-4-8")
+	log.merge_provenance("anthropic", "claude-opus-4-8")
+	assert log.provider == "anthropic" and log.model == "claude-opus-4-8"
+
+
+def test_merge_provenance_accumulates_across_provider_switch():
+	# A session that switched provider/model mid-way records each, in first-seen order.
+	log = ReviewLog(title="세션")
+	log.merge_provenance("anthropic", "claude-opus-4-8")
+	log.merge_provenance("openai", "gpt-4o")
+	assert log.provider == "anthropic, openai"
+	assert log.model == "claude-opus-4-8, gpt-4o"
+
+
+def test_merge_provenance_ignores_blank_values():
+	log = ReviewLog(title="세션")
+	log.merge_provenance("anthropic", "")   # model unknown yet
+	log.merge_provenance("", "claude-opus-4-8")
+	assert log.provider == "anthropic" and log.model == "claude-opus-4-8"
+
+
 def test_review_log_collapses_internal_newlines_into_one_bullet():
 	# A narration containing an internal newline/tab must not split into two
 	# Markdown list items — each entry stays a single bullet.

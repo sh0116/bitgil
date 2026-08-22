@@ -93,18 +93,20 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				self._review_log = ReviewLog(
 					title="Bitgil 세션 노트",
 					clock=lambda: time.strftime("%H:%M:%S"),
-					provider=provider_name,
-					model=conf["model"] or "",
 				)
 			self._engine = build_engine(
 				provider_name, provider_config, self._profile, review_log=self._review_log
 			)
-			# When no model was pinned in settings, the speed tier picked one —
-			# record what actually ran so the exported note's provenance is real.
-			if not self._review_log.model:
-				self._review_log.model = getattr(
-					getattr(self._engine, "provider", None), "model", ""
-				) or ""
+			# Refresh provenance on EVERY build, not just the first. _reset_engine()
+			# rebuilds the engine mid-session (e.g. after a provider/profile change),
+			# but the review log outlives that — so its provider/model would otherwise
+			# stay stale and misattribute the exported note. When no model was pinned,
+			# the speed tier picked one, so read back what actually ran. merge_provenance
+			# accumulates distinct values, so a session that switched provider records each.
+			actual_model = conf["model"] or getattr(
+				getattr(self._engine, "provider", None), "model", ""
+			) or ""
+			self._review_log.merge_provenance(provider_name, actual_model)
 		return self._engine, self._profile
 
 	def _reset_engine(self):

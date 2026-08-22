@@ -24,6 +24,22 @@ _DISCLAIMER = (
 )
 
 
+def _add_distinct(existing: str, value: str) -> str:
+	"""Append `value` to a comma-separated string if not already present.
+
+	Keeps first-seen order so a session that switched provider/model mid-way
+	records every one honestly (e.g. "anthropic, openai") instead of
+	misattributing the whole note to a single one.
+	"""
+	value = value.strip()
+	if not value:
+		return existing
+	parts = [p.strip() for p in existing.split(",") if p.strip()] if existing else []
+	if value not in parts:
+		parts.append(value)
+	return ", ".join(parts)
+
+
 @dataclass
 class ReviewEntry:
 	text: str
@@ -49,6 +65,17 @@ class ReviewLog:
 			return
 		ts = self.clock() if self.clock is not None else ""
 		self.entries.append(ReviewEntry(text=text, timestamp=ts))
+
+	def merge_provenance(self, provider: str = "", model: str = "") -> None:
+		"""Fold in the provider/model that actually ran, keeping earlier ones.
+
+		The review log outlives engine rebuilds (a session spans F2 asks and live
+		runs, and settings can change mid-session), so callers refresh provenance on
+		every engine build. Distinct values accumulate rather than overwrite, so a
+		mixed-provider session's note attributes each provider/model it used.
+		"""
+		self.provider = _add_distinct(self.provider, provider)
+		self.model = _add_distinct(self.model, model)
 
 	def _provenance_line(self) -> str:
 		"""Human-readable provider/model/generated-at attribution, or "" if none."""
