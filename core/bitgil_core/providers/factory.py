@@ -10,7 +10,7 @@ from typing import Any, Mapping, Optional
 
 from .base import VisionProvider
 
-_KNOWN = {"anthropic", "bedrock", "openai", "gemini", "ollama"}
+_KNOWN = {"demo", "anthropic", "bedrock", "openai", "gemini", "ollama"}
 
 
 def build_provider(
@@ -33,6 +33,11 @@ def build_provider(
 	name = name.lower()
 	cfg = dict(config or {})
 
+	if name == "demo":
+		# Keyless canned-narration provider — no SDK, no credentials, no config.
+		from .demo_provider import DemoProvider
+
+		return DemoProvider()
 	if name == "anthropic":
 		from .anthropic_provider import AnthropicProvider
 

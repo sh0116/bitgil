@@ -7,6 +7,9 @@ a local Ollama, before installing into NVDA.
 
 Examples
 --------
+  # Keyless — canned narration, exercises the whole pipeline with no API key
+  python scripts/bitgil_demo.py --image slide.png --provider demo
+
   # Describe an image with Anthropic (reads ANTHROPIC_API_KEY from env)
   python scripts/bitgil_demo.py --image slide.png --provider anthropic
 
@@ -65,7 +68,8 @@ def main() -> None:
 	src = p.add_mutually_exclusive_group()
 	src.add_argument("--image", help="path to a screenshot (PNG/JPEG)")
 	src.add_argument("--screen", action="store_true", help="capture the current screen")
-	p.add_argument("--provider", default="ollama", help="ollama | anthropic | openai")
+	p.add_argument("--provider", default="ollama",
+	               help="demo (keyless) | ollama | anthropic | bedrock | openai | gemini")
 	p.add_argument("--model", help="override the provider's default model")
 	p.add_argument("--api-key", help="API key (else read from provider's env var)")
 	p.add_argument("--profile", default="general", help="profile pack name")
