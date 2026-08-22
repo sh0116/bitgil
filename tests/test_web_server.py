@@ -178,8 +178,12 @@ def test_path_traversal_is_blocked(base_url):
 
 
 def test_malformed_content_length_is_400(base_url):
+	# Empty body: the server rejects the bogus Content-Length before reading any
+	# body, so there's nothing left unread in the socket. Sending actual bytes
+	# here races on Windows — closing the connection with an unread request body
+	# makes the OS abort it (WinError 10053) before the client reads the 400.
 	status, body = _post(
-		base_url + "/narrate", b"x",
+		base_url + "/narrate", b"",
 		headers={"Content-Length": "not-a-number"},
 	)
 	assert status == 400
