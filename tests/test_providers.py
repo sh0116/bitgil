@@ -9,9 +9,35 @@ exercised deterministically.
 import sys
 import types
 
+from bitgil_core.providers import build_provider
 from bitgil_core.providers.base import Message
+from bitgil_core.providers.demo_provider import DemoProvider
 from bitgil_core.providers.gemini_provider import GeminiProvider, _safe_text
 from bitgil_core.providers.openai_provider import OpenAIProvider
+
+
+# --- Demo provider: keyless, rotates, routed through the factory -------------
+
+def test_factory_builds_demo_without_credentials():
+	# No config, no api_key — the factory must return a working demo provider.
+	p = build_provider("demo")
+	assert isinstance(p, DemoProvider)
+	assert p.name == "demo"
+
+
+def test_demo_provider_rotates_nonempty_korean():
+	p = DemoProvider()
+	msgs = [Message(role="user", text="hi")]
+	first = p.complete(msgs).text
+	second = p.complete(msgs).text
+	assert first and second and first != second   # rotates each call
+	assert first.startswith("(데모)")
+
+
+def test_demo_provider_stream_yields_text():
+	p = DemoProvider()
+	out = list(p.stream([Message(role="user", text="hi")]))
+	assert out and out[0].startswith("(데모)")
 
 
 # --- OpenAI: streaming must tolerate choice-less chunks ----------------------
