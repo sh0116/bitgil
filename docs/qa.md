@@ -52,11 +52,36 @@ python web/server.py --provider omniroute --profile learning-chart
 | `auto/best-vision`, `auto/pro-vision` | 비전 모델로 라우팅됨(현 상태 429 rate limit) → **기본값 채택** |
 | `aug/*` (Augment) | 502 — 구독 인증 필요 |
 
+**콤보는 보장이 아니다 (같은 날, 맥 + OpenRouter만 연결된 새 설치에서 관측):** 같은
+`auto/pro-vision`이 `400 No target in combo auto/pro-vision has confirmed vision support`를
+돌려줬다. 콤보가 무엇으로 풀리는지는 그 설치에 연결된 프로바이더에 달려 있기 때문이다.
+`/v1/models`를 보면 이유가 분명하다 — **`auto/*` 채널은 `capabilities.vision`을 아예 선언하지
+않고**, 구체 모델만 선언한다:
+
+```bash
+# 이 게이트웨이에서 이미지를 읽을 수 있는 모델 목록
+curl -s http://localhost:20128/v1/models \
+  | python3 -c "import json,sys;[print(m['id']) for m in json.load(sys.stdin)['data'] if m.get('capabilities',{}).get('vision')]"
+```
+
+그래서 어댑터는 이 400을 만나면 **한 번** `/v1/models`를 조회해 비전 지원을 선언한 구체 모델로
+갈아타고 재시도한 뒤, 그 모델을 세션 동안 기억한다(`auto/*`는 건너뛴다 — 방금 실패한 대상이다).
+해설 도중 시각장애인 사용자에게 "비전 타깃이 없다"는 400이 **음성으로** 읽히는 것은 조치 불가능한
+정보이므로, 사람이 모델 목록을 읽고 `--model`을 고르는 대신 게이트웨이에 직접 물어본다.
+비전 모델이 하나도 없으면 그때는 할 일을 말해준다("대시보드에서 비전 지원 프로바이더를 연결하세요").
+
 무료 풀은 상위 제공자의 쿼터·egress IP 차단(DuckDuckGo 챌린지, Vercel IP 블록 등)에 걸릴 수
-있다. 이때 어댑터는 게이트웨이의 원문 오류를 그대로 올린다(`OmniRoute 429: ... Rate limit
-exceeded`) — 사용자가 원인을 듣고 조치할 수 있어야 하므로 상태코드만 던지지 않는다.
-**따라서 이 경로로 해설 품질을 재려면 최소 한 개의 살아있는 비전 라우트가 필요하다**(게이트웨이
-대시보드에 상위 프로바이더 키를 넣거나, 쿼터가 풀린 뒤 재시도).
+있다. 관측된 무료 풀은 opencode·felo 두 곳뿐이었고, 둘이 죽으면 `auto`와 `auto/best-vision`이
+**같은 순서로 같은 실패**를 낸다(`poolSize 11`, `attemptOrder`에 opencode→felo만). 이때 어댑터는
+게이트웨이의 원문 오류를 그대로 올린다(`OmniRoute 429: ... Rate limit exceeded`) — 사용자가
+원인을 듣고 조치할 수 있어야 하므로 상태코드만 던지지 않는다.
+**따라서 이 경로로 해설 품질을 재려면 최소 한 개의 살아있는 비전 라우트가 필요하다**: 실측으로는
+게이트웨이 대시보드에서 상위 프로바이더(예: OpenRouter)를 연결하는 것이 유일하게 통한 방법이다.
+
+**인증이 걸린 게이트웨이:** 스코프 토큰을 켰다면 `OMNIROUTE_API_KEY`(게이트웨이 CLI와 같은 변수)
+또는 `BITGIL_API_KEY`를 export하면 CLI·웹 서버 양쪽이 자동으로 집어간다. 명시 지정은
+`--api-key`. 토큰 없이 401이 나면 어떤 변수를 채워야 하는지 오류 문구가 말해준다(403은 쿼터
+소진에도 쓰이므로 인증 힌트를 붙이지 않는다).
 
 ## 1. 주요 시나리오 (학습 웨지)
 

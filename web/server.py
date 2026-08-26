@@ -61,13 +61,19 @@ def _load_profile(name: str) -> Profile:
 class Bitgil:
 	"""Holds the reused core pipeline + a lock (single-user prototype)."""
 
-	def __init__(self, provider_name: str, model: str, profile_name: str, base_url: str = ""):
+	def __init__(self, provider_name: str, model: str, profile_name: str, base_url: str = "",
+	             api_key: str = ""):
 		self.provider_name = provider_name
 		cfg = {}
 		if model:
 			cfg["model"] = model
 		if base_url:
 			cfg["base_url"] = base_url
+		if api_key:
+			# Only for endpoints that take a token on the wire (a gated OmniRoute
+			# gateway). Vendor SDKs keep reading their own env vars; blank means the
+			# provider falls back to whatever it finds in the environment.
+			cfg["api_key"] = api_key
 		region = os.environ.get("BITGIL_AWS_REGION")
 		if region:
 			cfg["aws_region"] = region
@@ -311,9 +317,13 @@ def main() -> None:
 	p.add_argument("--profile", default=os.environ.get("BITGIL_PROFILE", "general"))
 	p.add_argument("--base-url", default=os.environ.get("BITGIL_BASE_URL", ""),
 	               help="provider endpoint (ollama / omniroute); blank = its default")
+	p.add_argument("--api-key", default="",
+	               help="token for a gated OmniRoute gateway; blank = read "
+	                    "OMNIROUTE_API_KEY / BITGIL_API_KEY from the environment")
 	args = p.parse_args()
 
-	Handler.bitgil = Bitgil(args.provider, args.model, args.profile, args.base_url)
+	Handler.bitgil = Bitgil(args.provider, args.model, args.profile, args.base_url,
+	                        args.api_key)
 	server = ThreadingHTTPServer((args.host, args.port), Handler)
 	cfg = Handler.bitgil.config()
 	print(f"Bitgil web on http://{args.host}:{args.port}  "
