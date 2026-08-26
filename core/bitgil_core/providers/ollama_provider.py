@@ -13,6 +13,7 @@ from typing import Iterator, Sequence
 
 import requests
 
+from . import endpoint_errors
 from .base import Message, VisionProvider, VisionResponse
 
 DEFAULT_MODEL = "llava"
@@ -37,17 +38,24 @@ class OllamaProvider(VisionProvider):
 		self.model = model
 		self.base_url = base_url.rstrip("/")
 
-	def complete(self, messages: Sequence[Message], *, max_tokens: int = 300) -> VisionResponse:
-		resp = requests.post(
-			f"{self.base_url}/api/chat",
-			json={
-				"model": self.model,
-				"messages": _to_ollama(messages),
-				"stream": False,
-				"options": {"num_predict": max_tokens},
-			},
-			timeout=120,
+	def _readable(self):
+		return endpoint_errors.readable(
+			"Ollama", self.base_url,
+			f"`ollama serve`가 실행 중이고 '{self.model}' 모델을 받아뒀는지 확인하세요.",
 		)
+
+	def complete(self, messages: Sequence[Message], *, max_tokens: int = 300) -> VisionResponse:
+		with self._readable():
+			resp = requests.post(
+				f"{self.base_url}/api/chat",
+				json={
+					"model": self.model,
+					"messages": _to_ollama(messages),
+					"stream": False,
+					"options": {"num_predict": max_tokens},
+				},
+				timeout=120,
+			)
 		resp.raise_for_status()
 		data = resp.json()
 		return VisionResponse(
@@ -57,7 +65,8 @@ class OllamaProvider(VisionProvider):
 		)
 
 	def stream(self, messages: Sequence[Message], *, max_tokens: int = 300) -> Iterator[str]:
-		with requests.post(
+		# _readable() also covers the iteration below: a stream can drop mid-flight.
+		with self._readable(), requests.post(
 			f"{self.base_url}/api/chat",
 			json={
 				"model": self.model,

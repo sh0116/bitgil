@@ -17,7 +17,8 @@ from bitgil_core.providers.base import Message
 from bitgil_core.providers.demo_provider import DemoProvider
 from bitgil_core.providers.gemini_provider import GeminiProvider, _safe_text
 from bitgil_core.providers.openai_provider import OpenAIProvider
-from bitgil_core.providers import omniroute_provider
+from bitgil_core.providers import ollama_provider, omniroute_provider
+from bitgil_core.providers.ollama_provider import OllamaProvider
 from bitgil_core.providers.omniroute_provider import OmniRouteProvider
 
 
@@ -296,6 +297,68 @@ def test_omniroute_error_without_json_body_still_raises(monkeypatch):
 	_capture_post(monkeypatch, _FakeResponse(status_code=502, text="<html>bad gateway</html>"))
 	with pytest.raises(requests.HTTPError):
 		p.complete([Message(role="user", text="hi")])
+
+
+def test_omniroute_connection_refused_is_one_spoken_sentence(monkeypatch):
+	# The web backend answers a failed frame with {"text": "오류: <exception>"} and the
+	# client speaks it, so a raw urllib3 dump ("HTTPConnectionPool(host='localhost',
+	# port=20128): Max retries exceeded with url: ...") lands in the user's ear.
+	p = OmniRouteProvider()
+
+	def refuse(url, **kwargs):
+		raise requests.ConnectionError(
+			"HTTPConnectionPool(host='localhost', port=20128): Max retries exceeded "
+			"with url: /v1/chat/completions (Caused by NewConnectionError(...))"
+		)
+
+	monkeypatch.setattr(omniroute_provider.requests, "post", refuse)
+	with pytest.raises(requests.ConnectionError) as excinfo:
+		p.complete([Message(role="user", text="hi")])
+	spoken = str(excinfo.value)
+	assert "HTTPConnectionPool" not in spoken and "Max retries" not in spoken
+	assert "OmniRoute 게이트웨이에 연결할 수 없습니다" in spoken
+	assert "http://localhost:20128/v1" in spoken   # which endpoint was tried
+	assert spoken.count("\n") == 0                 # one sentence, not a traceback
+
+
+def test_ollama_connection_refused_names_the_fix(monkeypatch):
+	# Same failure mode as the gateway: `ollama serve` not running.
+	p = OllamaProvider(model="llava")
+
+	def refuse(url, **kwargs):
+		raise requests.ConnectionError("HTTPConnectionPool(host='localhost', port=11434): ...")
+
+	monkeypatch.setattr(ollama_provider.requests, "post", refuse)
+	with pytest.raises(requests.ConnectionError) as excinfo:
+		p.complete([Message(role="user", text="hi")])
+	spoken = str(excinfo.value)
+	assert "HTTPConnectionPool" not in spoken
+	assert "Ollama에 연결할 수 없습니다" in spoken
+	assert "ollama serve" in spoken and "llava" in spoken
+
+
+def test_timeout_becomes_readable_too(monkeypatch):
+	p = OmniRouteProvider()
+
+	def stall(url, **kwargs):
+		raise requests.Timeout("HTTPSConnectionPool(...): Read timed out. (read timeout=120)")
+
+	monkeypatch.setattr(omniroute_provider.requests, "post", stall)
+	with pytest.raises(requests.Timeout) as excinfo:
+		p.complete([Message(role="user", text="hi")])
+	assert "제때 응답하지 않았습니다" in str(excinfo.value)
+	assert "Read timed out" not in str(excinfo.value)
+
+
+def test_http_errors_still_pass_through_unchanged(monkeypatch):
+	# The wrapper must not swallow HTTP errors — the gateway's own 429 text is more
+	# specific than anything we would substitute.
+	payload = {"error": {"message": "[429]: Rate limit exceeded"}}
+	p = OmniRouteProvider()
+	_capture_post(monkeypatch, _FakeResponse(status_code=429, payload=payload))
+	with pytest.raises(requests.HTTPError) as excinfo:
+		p.complete([Message(role="user", text="hi")])
+	assert "Rate limit exceeded" in str(excinfo.value)
 
 
 def test_omniroute_non_json_success_body_raises_readable_error(monkeypatch):
