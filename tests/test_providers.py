@@ -644,3 +644,64 @@ def test_omniroute_non_json_success_body_raises_readable_error(monkeypatch):
 	with pytest.raises(requests.HTTPError) as excinfo:
 		p.complete([Message(role="user", text="hi")])
 	assert "non-JSON" in str(excinfo.value)
+
+
+def test_omniroute_skips_a_dead_route_on_the_following_frame(monkeypatch):
+	# The fall-forward loop leaves `model` on the last route it tried — a dead one when
+	# everything failed — so the next frame paid a round trip just to be refused again.
+	# That round trip is silence for someone waiting to hear what changed on screen.
+	models = {"data": [{"id": f"p{i}/m", "capabilities": {"vision": True},
+	                    "max_input_tokens": 900 - i} for i in range(4)]}
+	responses = {f"p{i}/m": _FakeResponse(status_code=400, payload=_BAD_IMAGE_REQUEST)
+	             for i in range(3)}
+	responses["p3/m"] = _FakeResponse(payload={"choices": [{"message": {"content": "살아있다"}}]})
+	responses["auto/best-vision"] = _FakeResponse(status_code=400, payload=_NO_VISION_TARGET)
+	calls = _route_calls(monkeypatch, responses, models)
+	p = OmniRouteProvider()
+	frame = [Message(role="user", text="hi", image=b"\x89PNG")]
+	with pytest.raises(requests.HTTPError):
+		p.complete(frame)                        # the cap stops it before the live route
+	assert calls["models"] == ["auto/best-vision", "p0/m", "p1/m", "p2/m"]
+	assert p.complete(frame).text == "살아있다"
+	assert calls["models"][4:] == ["p3/m"]       # straight there: no dead route retried
+	assert calls["gets"] == 1                    # and the catalog is still fetched once
+
+
+def _fake_models(monkeypatch, payload):
+	monkeypatch.setattr(omniroute_provider.requests, "get",
+	                    lambda url, **kwargs: _FakeResponse(payload=payload))
+
+
+def test_omniroute_route_report_ranks_routes_and_marks_the_ones_it_would_try(monkeypatch):
+	# `--list-routes` answers "which models did it even try?" — a question only the
+	# user's own gateway can answer, since the catalog follows the providers they
+	# connected in the dashboard.
+	_fake_models(monkeypatch, _CAPACITY_MODELS)
+	report = OmniRouteProvider().route_report()
+	assert [model_id for model_id, _, _ in report["vision"]] == ["oc/big", "ddgw/mid"]
+	assert report["would_try"] == ["oc/big", "ddgw/mid"]
+	# The combo is dropped even though it claims vision; the text-only model is *listed*
+	# (so the user sees it exists) but is never a candidate for an image.
+	assert [model_id for model_id, _, _ in report["models"]] == [
+		"ddgw/mid", "oc/big", "oc/text-only"]
+	assert report["authenticated"] is False
+
+
+def test_omniroute_route_report_caps_would_try_at_the_attempt_limit(monkeypatch):
+	# What it says it *would* try has to match what it *does* try, or the diagnostic lies.
+	_fake_models(monkeypatch, {"data": [{"id": f"p{i}/m", "capabilities": {"vision": True},
+	                                     "max_input_tokens": 900 - i} for i in range(6)]})
+	report = OmniRouteProvider().route_report()
+	assert len(report["vision"]) == 6
+	assert report["would_try"] == ["p0/m", "p1/m", "p2/m"]
+
+
+def test_omniroute_route_report_reports_a_gateway_with_no_vision_model(monkeypatch):
+	# The diagnostic must not raise on the very case it exists to explain.
+	_fake_models(monkeypatch, {"data": [
+		{"id": "auto/best-vision", "capabilities": {"vision": True}},
+		{"id": "oc/text-only", "capabilities": {"tool_calling": True}}]})
+	report = OmniRouteProvider().route_report()
+	assert report["vision"] == []
+	assert report["would_try"] == []
+	assert report["dashboard"] == "http://localhost:20128"

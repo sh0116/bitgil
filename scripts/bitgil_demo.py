@@ -21,6 +21,9 @@ Examples
 
   # Use a learning profile and stream the narration
   python scripts/bitgil_demo.py --image chart.png --profile learning-chart --stream
+
+  # Which routes can the local OmniRoute gateway actually read an image with?
+  python scripts/bitgil_demo.py --provider omniroute --list-routes
 """
 
 from __future__ import annotations
@@ -63,6 +66,55 @@ def _load_profile(name: str, directory: str) -> Profile:
 	sys.exit(f"error: profile '{name}' not found in {directory}")
 
 
+def _print_routes(args) -> None:
+	"""Show which gateway models can accept an image (omniroute only).
+
+	"모델 3개를 시도했지만 모두 실패했습니다" leaves one question open — *which* three,
+	and what else was on offer. That depends on the providers connected in this
+	gateway's dashboard, so only the user's own machine can answer it. The per-prefix
+	tally is the important half: it shows whether an upstream (say OpenRouter) is
+	reaching the catalog at all, versus reaching it with no vision flag.
+	"""
+	if args.provider != "omniroute":
+		sys.exit("error: --list-routes only applies to --provider omniroute")
+	config = {}
+	if args.api_key:
+		config["api_key"] = args.api_key
+	if args.base_url:
+		config["base_url"] = args.base_url
+	provider = build_provider("omniroute", config)
+	try:
+		report = provider.route_report()
+	except Exception as e:
+		sys.exit(f"게이트웨이 조회 실패: {e}\n(게이트웨이가 실행 중인가요? --base-url 확인)")
+
+	auth = " (토큰 인증됨)" if report["authenticated"] else ""
+	print(f"게이트웨이 {report['base_url']} — 콤보 제외 모델 {len(report['models'])}개{auth}")
+
+	tally: dict[str, list[int]] = {}
+	for model_id, _, claims_vision in report["models"]:
+		counts = tally.setdefault(model_id.split("/")[0], [0, 0])
+		counts[0] += 1
+		counts[1] += int(claims_vision)
+	line = ", ".join(
+		f"{prefix} {total}개(비전 {vision})"
+		for prefix, (total, vision) in sorted(tally.items(), key=lambda kv: -kv[1][0])
+	)
+	print(f"프로바이더별: {line or '없음'}")
+
+	if not report["vision"]:
+		print(
+			"\n이미지를 읽을 수 있다고 선언한 모델이 0개입니다 — 해설은 어떤 경로로도 안 됩니다.\n"
+			f"대시보드({report['dashboard']})에서 비전 지원 프로바이더를 연결하세요."
+		)
+		return
+	print(f"\n비전 선언 모델 {len(report['vision'])}개 (입력 용량 큰 순, → 표시가 실제 시도 순서):")
+	for rank, (model_id, room, _) in enumerate(report["vision"], 1):
+		mark = "→" if model_id in report["would_try"] else " "
+		print(f" {mark} {rank:2}. {model_id}  ({f'{room:,} tokens' if room else '용량 미상'})")
+	print("\n특정 경로를 강제하려면 --model <id> (이때는 재라우팅하지 않습니다).")
+
+
 def main() -> None:
 	p = argparse.ArgumentParser(description="Bitgil CLI prototype")
 	src = p.add_mutually_exclusive_group()
@@ -78,7 +130,14 @@ def main() -> None:
 	p.add_argument("--profiles-dir", default=DEFAULT_PROFILES_DIR)
 	p.add_argument("--ask", default="", help="question about the screen (F2); blank = describe")
 	p.add_argument("--stream", action="store_true", help="stream narration as it arrives")
+	p.add_argument("--list-routes", action="store_true",
+	               help="omniroute: list the gateway models that can accept an image, "
+	                    "then exit (no image needed)")
 	args = p.parse_args()
+
+	if args.list_routes:
+		_print_routes(args)
+		return
 
 	frame = _load_frame(args)
 	profile = _load_profile(args.profile, args.profiles_dir)
@@ -120,8 +179,9 @@ def main() -> None:
 			)
 	except Exception as e:
 		hints = {
-			"omniroute": "(is the OmniRoute gateway running? try --base-url, or a "
-			             "--model whose route still has quota)",
+			"omniroute": "(is the OmniRoute gateway running? see which routes it has "
+			             "with --list-routes, then try --base-url or a --model whose "
+			             "route still has quota)",
 			"ollama": "(is Ollama running with a vision model pulled?)",
 		}
 		hint = hints.get(provider.name, "(check the API key / that the provider is reachable)")

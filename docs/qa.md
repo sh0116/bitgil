@@ -88,6 +88,29 @@ curl -s http://localhost:20128/v1/models \
 라이브 확인(이 Pi, `auto/pro-vision` 기본): 후보 3개(`oc/mimo-v2.5-free` 1.05M →
 `aug/gemini-3.1-pro-preview` 1.0M → `ddgw/gpt-5.4-mini` 409k)를 순서대로 시도하고
 "모델 3개를 시도했지만 모두 실패했습니다 (마지막 400: ... ERR_BAD_REQUEST)"로 종료.
+같은 실패가 다음 프레임에서 되풀이되지 않게, 영구 제외된 경로에서는 다시 시작하지 않는다.
+
+**그 문구가 나왔을 때 무엇을 봐야 하나 — `--list-routes`.** 시도된 후보는 그 게이트웨이에 연결된
+프로바이더에 달려 있어서 기계마다 다르다. curl 파이프라인을 손으로 조립하는 대신:
+
+```bash
+python scripts/bitgil_demo.py --provider omniroute --list-routes
+```
+
+```
+게이트웨이 http://localhost:20128/v1 — 콤보 제외 모델 77개
+프로바이더별: aug 28개(비전 3), tllm 26개(비전 0), ddgw 6개(비전 3), oc 6개(비전 1), felo 5개(비전 0), ...
+
+비전 선언 모델 7개 (입력 용량 큰 순, → 표시가 실제 시도 순서):
+ →  1. oc/mimo-v2.5-free  (1,048,576 tokens)
+ →  2. aug/gemini-3.1-pro-preview  (1,000,000 tokens)
+ →  3. ddgw/gpt-5.4-mini  (409,600 tokens)
+    4. ddgw/gpt-5.4-nano  (409,600 tokens)
+```
+
+프로바이더별 집계가 진단의 핵심이다: 어떤 상위 프로바이더가 **카탈로그에 아예 없는지**와
+**있지만 비전 플래그가 0인지**를 구분해준다(전자는 대시보드 연결/동기화 문제, 후자는 게이트웨이의
+보수적 id 매칭 문제 — [handoff.md](handoff.md) §3-5, §4 참조).
 
 무료 풀은 상위 제공자의 쿼터·egress IP 차단(DuckDuckGo 챌린지, Vercel IP 블록 등)에 걸릴 수
 있다. 관측된 무료 풀은 opencode·felo 두 곳뿐이었고, 둘이 죽으면 `auto`와 `auto/best-vision`이
