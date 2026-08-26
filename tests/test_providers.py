@@ -169,6 +169,10 @@ class _FakeResponse:
 		self._payload = payload
 		self._lines = lines
 		self.text = text
+		self.closed = False
+
+	def close(self):
+		self.closed = True
 
 	def json(self):
 		if self._payload is None:
@@ -196,6 +200,14 @@ def _capture_post(monkeypatch, response):
 
 	monkeypatch.setattr(omniroute_provider.requests, "post", fake_post)
 	return seen
+
+
+@pytest.fixture(autouse=True)
+def _no_gateway_token_in_env(monkeypatch):
+	# The adapter falls back to these when no key is passed; a developer who has one
+	# exported must not get different test results from CI.
+	for var in ("OMNIROUTE_API_KEY", "BITGIL_API_KEY"):
+		monkeypatch.delenv(var, raising=False)
 
 
 def test_factory_builds_omniroute_keyless_with_vision_default():
@@ -359,6 +371,146 @@ def test_http_errors_still_pass_through_unchanged(monkeypatch):
 	with pytest.raises(requests.HTTPError) as excinfo:
 		p.complete([Message(role="user", text="hi")])
 	assert "Rate limit exceeded" in str(excinfo.value)
+
+
+# --- OmniRoute: a gated gateway, and a route that can't see images --------------
+
+def _capture_calls(monkeypatch, posts, models_payload=None):
+	"""Queue POST responses (last one repeats) and serve GET /models from a payload."""
+	calls = {"posts": [], "gets": []}
+	queue = list(posts)
+
+	def fake_post(url, **kwargs):
+		calls["posts"].append({"url": url, **kwargs})
+		return queue.pop(0) if len(queue) > 1 else queue[0]
+
+	def fake_get(url, **kwargs):
+		calls["gets"].append({"url": url, **kwargs})
+		return _FakeResponse(payload=models_payload or {})
+
+	monkeypatch.setattr(omniroute_provider.requests, "post", fake_post)
+	monkeypatch.setattr(omniroute_provider.requests, "get", fake_get)
+	return calls
+
+
+_NO_VISION_TARGET = {"error": {"message": "No target in combo auto/pro-vision has "
+                                          "confirmed vision support for this image request"}}
+
+# A combo that claims vision is included on purpose: the combo is what just failed,
+# so discovery has to reach past it to a concrete model.
+_MODELS = {"data": [
+	{"id": "auto/pro-vision", "capabilities": {"reasoning": True}},
+	{"id": "auto/best-vision", "capabilities": {"vision": True}},
+	{"id": "oc/text-only-free", "capabilities": {"tool_calling": True}},
+	{"id": "ddgw/claude-haiku-4-5", "capabilities": {"vision": True}},
+]}
+
+
+def test_omniroute_reads_gateway_token_from_env(monkeypatch):
+	# Enabling auth on the gateway must not mean retyping a token to start narrating:
+	# OMNIROUTE_API_KEY is the gateway CLI's own variable, so we honour it.
+	monkeypatch.setenv("OMNIROUTE_API_KEY", "gw-token")
+	seen = _capture_post(monkeypatch, _FakeResponse(payload={"choices": []}))
+	build_provider("omniroute").complete([Message(role="user", text="hi")])
+	assert seen["headers"]["Authorization"] == "Bearer gw-token"
+
+
+def test_omniroute_bitgil_api_key_env_also_works(monkeypatch):
+	monkeypatch.setenv("BITGIL_API_KEY", "bitgil-token")
+	seen = _capture_post(monkeypatch, _FakeResponse(payload={"choices": []}))
+	OmniRouteProvider().complete([Message(role="user", text="hi")])
+	assert seen["headers"]["Authorization"] == "Bearer bitgil-token"
+
+
+def test_omniroute_explicit_key_beats_the_environment(monkeypatch):
+	monkeypatch.setenv("OMNIROUTE_API_KEY", "from-env")
+	seen = _capture_post(monkeypatch, _FakeResponse(payload={"choices": []}))
+	OmniRouteProvider(api_key="explicit").complete([Message(role="user", text="hi")])
+	assert seen["headers"]["Authorization"] == "Bearer explicit"
+
+
+def test_omniroute_401_names_the_variable_that_fixes_it(monkeypatch):
+	# "Authentication required" read aloud tells the user nothing to do.
+	p = OmniRouteProvider()
+	_capture_post(monkeypatch, _FakeResponse(status_code=401,
+	                                         payload={"error": {"message": "Authentication required"}}))
+	with pytest.raises(requests.HTTPError) as excinfo:
+		p.complete([Message(role="user", text="hi")])
+	assert "OMNIROUTE_API_KEY" in str(excinfo.value)
+
+
+def test_omniroute_403_quota_is_not_reported_as_an_auth_problem(monkeypatch):
+	# The gateway also uses 403 for an exhausted upstream quota; an auth hint there
+	# would send the user off to mint a token that changes nothing.
+	p = OmniRouteProvider()
+	_capture_post(monkeypatch, _FakeResponse(
+		status_code=403, payload={"error": {"message": "[403]: insufficient quota"}}))
+	with pytest.raises(requests.HTTPError) as excinfo:
+		p.complete([Message(role="user", text="hi")])
+	assert "OMNIROUTE_API_KEY" not in str(excinfo.value)
+	assert "insufficient quota" in str(excinfo.value)
+
+
+def test_omniroute_recovers_from_a_combo_with_no_vision_target(monkeypatch):
+	# Live 400 on a fresh gateway: the combo resolved to text-only upstreams. Every
+	# Bitgil call is a screenshot, so instead of speaking the 400 we ask the gateway
+	# which model can see, and retry on it.
+	ok = _FakeResponse(payload={"choices": [{"message": {"content": "막대 네 개"}}]})
+	calls = _capture_calls(monkeypatch,
+	                       [_FakeResponse(status_code=400, payload=_NO_VISION_TARGET), ok],
+	                       models_payload=_MODELS)
+	p = OmniRouteProvider()
+	out = p.complete([Message(role="user", text="설명해줘", image=b"\x89PNG")])
+	assert out.text == "막대 네 개"
+	assert calls["gets"][0]["url"] == "http://localhost:20128/v1/models"
+	# Reached past the combo (even one advertising vision) to a concrete model...
+	assert p.model == "ddgw/claude-haiku-4-5"
+	assert calls["posts"][1]["json"]["model"] == "ddgw/claude-haiku-4-5"
+	# ...and remembers it, so the next frame doesn't pay for the discovery again.
+	p.complete([Message(role="user", text="다시", image=b"\x89PNG")])
+	assert len(calls["gets"]) == 1
+
+
+def test_omniroute_vision_discovery_retries_only_once(monkeypatch):
+	# If the discovered model is rejected too, surface it — don't loop.
+	calls = _capture_calls(monkeypatch,
+	                       [_FakeResponse(status_code=400, payload=_NO_VISION_TARGET)],
+	                       models_payload=_MODELS)
+	with pytest.raises(requests.HTTPError):
+		OmniRouteProvider().complete([Message(role="user", text="hi", image=b"\x89PNG")])
+	assert len(calls["posts"]) == 2 and len(calls["gets"]) == 1
+
+
+def test_omniroute_other_400s_are_not_retried(monkeypatch):
+	# The context-limit 400 is a different problem; a second call would just waste time.
+	calls = _capture_calls(monkeypatch, [_FakeResponse(
+		status_code=400,
+		payload={"error": {"message": "every auto-strategy candidate has a smaller "
+		                              "known context limit"}})])
+	with pytest.raises(requests.HTTPError):
+		OmniRouteProvider().complete([Message(role="user", text="hi", image=b"\x89PNG")])
+	assert len(calls["posts"]) == 1 and calls["gets"] == []
+
+
+def test_omniroute_says_what_to_do_when_no_model_can_see(monkeypatch):
+	text_only = {"data": [{"id": "oc/text-free", "capabilities": {"tool_calling": True}}]}
+	_capture_calls(monkeypatch, [_FakeResponse(status_code=400, payload=_NO_VISION_TARGET)],
+	               models_payload=text_only)
+	with pytest.raises(requests.HTTPError) as excinfo:
+		OmniRouteProvider().complete([Message(role="user", text="hi", image=b"\x89PNG")])
+	spoken = str(excinfo.value)
+	assert "이미지를 읽을 수 있는 모델이 없습니다" in spoken
+	assert "http://localhost:20128" in spoken   # where to go connect one
+
+
+def test_omniroute_stream_also_recovers_from_a_vision_incapable_route(monkeypatch):
+	streamed = _FakeResponse(lines=[b'data: {"choices":[{"delta":{"content":"\xec\x95\x88"}}]}'])
+	_capture_calls(monkeypatch,
+	               [_FakeResponse(status_code=400, payload=_NO_VISION_TARGET), streamed],
+	               models_payload=_MODELS)
+	p = OmniRouteProvider()
+	assert list(p.stream([Message(role="user", text="hi", image=b"\x89PNG")])) == ["안"]
+	assert p.model == "ddgw/claude-haiku-4-5"
 
 
 def test_omniroute_non_json_success_body_raises_readable_error(monkeypatch):

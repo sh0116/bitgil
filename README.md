@@ -82,7 +82,7 @@ web/          플랫폼 무관 웹 레퍼런스 클라이언트 (키 없는 demo
 scripts/      CLI 프로토타입(bitgil_demo) · 애드온 빌드(build_addon)
 profiles/     기본 프로파일 팩 6종 (CC BY 4.0)
 docs/         한/영 문서 (설계·근거·QA·로드맵)
-tests/        오프라인 테스트 156개 (코어·애드온 스텁·트리아지·웹 서버·프로바이더 등)
+tests/        오프라인 테스트 170개 (코어·애드온 스텁·트리아지·웹 서버·프로바이더 등)
 ```
 
 라이선스 이중 구조: NVDA가 GPLv2이므로 애드온 본체는 GPLv2, 다른 스크린리더/독립 앱으로의
@@ -125,8 +125,15 @@ python scripts/bitgil_demo.py --image slide.png --provider omniroute
 
 모델은 OmniRoute의 콤보 채널로 지정합니다(`auto/best-vision` 기본, 프로파일 speed 티어가
 `quality`면 `auto/pro-vision`). **주의:** `auto/vision`·`auto/multimodal`은 후보 풀의 컨텍스트
-한도가 작아 스크린샷을 거부하므로 기본값으로 쓰지 않습니다. 무료 풀은 상위 제공자의
-쿼터·IP 제한에 걸릴 수 있고, 그때는 게이트웨이 오류 메시지가 그대로 전달됩니다.
+한도가 작아 스크린샷을 거부하므로 기본값으로 쓰지 않습니다.
+
+콤보가 무엇으로 풀리는지는 **그 게이트웨이에 연결된 프로바이더**에 달려 있어서, 비전 타깃이 없는
+설치에서는 `400 No target in combo ... has confirmed vision support`가 납니다. 이때 어댑터가
+`/v1/models`에서 `capabilities.vision`을 선언한 구체 모델을 찾아 자동으로 갈아타고 재시도합니다
+(세션 동안 기억). 비전 모델이 아예 없으면 대시보드에서 프로바이더를 연결하라고 안내합니다.
+무료 풀(opencode·felo)은 쿼터·IP 제한에 자주 걸리므로, 실사용에는 대시보드에서 상위
+프로바이더(예: OpenRouter)를 하나 연결하는 편이 확실합니다. 게이트웨이에 토큰을 걸었다면
+`OMNIROUTE_API_KEY`(또는 `BITGIL_API_KEY`)만 export하면 자동 인증됩니다.
 
 **③ 이미지 한 장을 CLI로 — 실 프로바이더/로컬 모델 필요.**
 
