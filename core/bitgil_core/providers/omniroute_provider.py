@@ -154,6 +154,7 @@ class OmniRouteProvider(VisionProvider):
 		mid-narration for someone who cannot read a terminal — an error they can act on
 		is the last resort, not the first response.
 		"""
+		self._retire_dead_route()
 		resp = self._post(messages, max_tokens, stream)
 		if not self._should_reroute(resp):
 			return resp
@@ -184,6 +185,22 @@ class OmniRouteProvider(VisionProvider):
 			)
 		return resp
 
+	def _retire_dead_route(self) -> None:
+		"""Move off a route already known to refuse our payload, before spending a call.
+
+		The fall-forward loop leaves `self.model` on the last route it tried, which on a
+		total failure is a dead one. Without this, every later frame burns its first
+		round trip re-asking a model that already said no — and each round trip is
+		silence for someone waiting to hear what changed on screen. Only routes *we*
+		chose are ever marked dead, so a user-pinned `--model` is never retired here.
+		"""
+		if self.model not in self._dead_models:
+			return
+		for candidate in self._vision_candidates():
+			if candidate not in self._dead_models:
+				self.model = candidate
+				return
+
 	def _should_reroute(self, resp) -> bool:
 		"""Is this a failure on a route *we* chose, that another route might survive?"""
 		if resp.status_code < 400 or resp.status_code == 401:
@@ -192,6 +209,14 @@ class OmniRouteProvider(VisionProvider):
 		# discovered. An explicitly pinned `--model` is respected: the user asked for
 		# that route, so its error is the answer.
 		return self.model.startswith("auto/") or self._vision_model_discovered
+
+	def _get_models(self):
+		with self._readable():
+			resp = requests.get(
+				f"{self.base_url}/models", headers=self._headers(), timeout=_TIMEOUT
+			)
+		_raise_for_gateway_error(resp)
+		return resp
 
 	def _vision_candidates(self) -> list[str]:
 		"""Model ids the gateway says can accept an image, widest context first.
@@ -202,33 +227,37 @@ class OmniRouteProvider(VisionProvider):
 		"""
 		if self._candidates is not None:
 			return self._candidates
-		with self._readable():
-			resp = requests.get(
-				f"{self.base_url}/models", headers=self._headers(), timeout=_TIMEOUT
-			)
-		_raise_for_gateway_error(resp)
-		try:
-			data = resp.json()
-		except ValueError:
-			data = {}
-		found = []
-		for entry in data.get("data") or []:
-			model_id = entry.get("id") or ""
-			# Skip the auto/* combos: they never declare vision, which is how we got here.
-			if model_id.startswith("auto/") or not model_id:
-				continue
-			if (entry.get("capabilities") or {}).get("vision"):
-				room = entry.get("max_input_tokens") or entry.get("context_length") or 0
-				found.append((room, model_id))
+		resp = self._get_models()
+		found = _vision_first(_concrete_models(_json_or_empty(resp)))
 		if not found:
 			raise requests.HTTPError(
 				"OmniRoute 게이트웨이에 이미지를 읽을 수 있는 모델이 없습니다. "
 				f"대시보드({self._dashboard_url()})에서 비전 지원 프로바이더를 연결하세요.",
 				response=resp,
 			)
-		found.sort(key=lambda pair: pair[0], reverse=True)
-		self._candidates = [model_id for _, model_id in found]
+		self._candidates = [model_id for model_id, _, _ in found]
 		return self._candidates
+
+	def route_report(self) -> dict:
+		"""What this gateway can do with an image — the data behind `--list-routes`.
+
+		Diagnostic, not narration. When every route fails, the only useful next question
+		is *which* models this install calls vision-capable, and that answer differs per
+		machine (it follows the providers connected in the dashboard). Someone debugging
+		this is usually the blind user themselves, so it has to be one command, not a
+		hand-assembled curl | python pipeline.
+		"""
+		models = _concrete_models(_json_or_empty(self._get_models()))
+		vision = _vision_first(models)
+		return {
+			"base_url": self.base_url,
+			"dashboard": self._dashboard_url(),
+			"authenticated": bool(self._api_key),
+			"models": models,
+			"vision": vision,
+			# The same slice a narration turn would actually attempt, in order.
+			"would_try": [model_id for model_id, _, _ in vision[:_MAX_ROUTE_ATTEMPTS]],
+		}
 
 	def _dashboard_url(self) -> str:
 		# The gateway serves its dashboard at the root; base_url points at the /v1 API.
@@ -283,6 +312,42 @@ class OmniRouteProvider(VisionProvider):
 				piece = (choices[0].get("delta") or {}).get("content")
 				if piece:
 					yield piece
+
+
+def _json_or_empty(resp) -> dict:
+	try:
+		body = resp.json()
+	except ValueError:
+		return {}
+	return body if isinstance(body, dict) else {}
+
+
+def _concrete_models(payload: dict) -> list[tuple[str, int, bool]]:
+	"""(id, input capacity, claims vision) for each non-combo model in /v1/models.
+
+	The `auto/*` combos are dropped: they never declare `capabilities.vision`, which is
+	the whole reason we ask the gateway which concrete model to use.
+	"""
+	models = []
+	for entry in payload.get("data") or []:
+		model_id = entry.get("id") or ""
+		if not model_id or model_id.startswith("auto/"):
+			continue
+		room = entry.get("max_input_tokens") or entry.get("context_length") or 0
+		claims_vision = bool((entry.get("capabilities") or {}).get("vision"))
+		models.append((model_id, room, claims_vision))
+	return models
+
+
+def _vision_first(models: list[tuple[str, int, bool]]) -> list[tuple[str, int, bool]]:
+	"""The image-capable models, widest input capacity first.
+
+	Capacity decides the order because the other measured rejection of a screenshot is
+	a context-limit 400 — the roomiest route is the likeliest to accept one.
+	"""
+	return sorted(
+		(model for model in models if model[2]), key=lambda model: model[1], reverse=True
+	)
 
 
 def _error_message(resp) -> str:
