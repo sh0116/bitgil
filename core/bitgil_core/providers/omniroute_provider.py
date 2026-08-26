@@ -73,6 +73,14 @@ SPEED_MODELS = {
 
 _TIMEOUT = 120
 
+# How many alternative vision routes one call may try before giving up. Each attempt
+# is a full round trip inside a narration turn, so latency bounds this, not patience.
+_MAX_ROUTE_ATTEMPTS = 3
+
+# Statuses that condemn a route for the session rather than for one call: the upstream
+# can't take our payload (or isn't there), which no amount of waiting changes.
+_ROUTE_IS_UNUSABLE = frozenset({400, 404, 415, 422, 501})
+
 
 class OmniRouteProvider(VisionProvider):
 	name = "omniroute"
@@ -91,6 +99,8 @@ class OmniRouteProvider(VisionProvider):
 		# keeps the token out of argv (and out of shell history).
 		self._api_key = api_key or _api_key_from_env()
 		self._vision_model_discovered = False
+		self._candidates: list[str] | None = None
+		self._dead_models: set[str] = set()
 
 	def _headers(self) -> dict:
 		headers = {"Content-Type": "application/json"}
@@ -125,34 +135,73 @@ class OmniRouteProvider(VisionProvider):
 			)
 
 	def _open(self, messages: Sequence[Message], max_tokens: int, stream: bool):
-		"""POST, and once recover from "this route can't see images" by finding one that can.
+		"""POST, falling forward through vision-capable routes until one answers.
 
-		Which upstreams a combo channel resolves to depends on what the user connected
-		to their gateway, so no hard-coded id is right for everyone: a fresh install
-		answers `auto/pro-vision` with 400 "No target in combo ... has confirmed vision
-		support". Bitgil's whole payload is a screenshot, so that verdict is fatal —
-		and it arrives *spoken aloud*, mid-narration, to someone who cannot go read a
-		model list. So ask the gateway which of its models declares vision support and
-		retry on that one, remembering it for the rest of the session.
+		Bitgil's payload is always a screenshot, and on OmniRoute nothing guarantees the
+		chosen route can read one. Two independent ways it fails, both measured live:
+
+		- A combo resolves to text-only upstreams → 400 "No target in combo ... has
+		  confirmed vision support" — the combo channels never declare
+		  `capabilities.vision` themselves, so the gateway can't promise this.
+		- A model *does* declare vision but refuses the image anyway → 400 "DuckDuckGo
+		  AI Chat error: ERR_BAD_REQUEST", or has no quota left → 429. The flag in
+		  /v1/models is a claim, not a working route.
+
+		The gateway's own fallback can't cover us here (that's what combos are for, and
+		combos are the thing without a vision guarantee), so the retry lives here: ask
+		which models claim vision, try them in turn, keep the one that works, and
+		remember the ones that can't so later frames don't pay for them again. This runs
+		mid-narration for someone who cannot read a terminal — an error they can act on
+		is the last resort, not the first response.
 		"""
 		resp = self._post(messages, max_tokens, stream)
-		if self._vision_route_rejected(resp):
+		if not self._should_reroute(resp):
+			return resp
+		attempted: list[str] = []
+		for candidate in self._vision_candidates():
+			if candidate in self._dead_models or candidate == self.model:
+				continue
+			if len(attempted) >= _MAX_ROUTE_ATTEMPTS:
+				break
 			resp.close()
-			self.model = self._discover_vision_model()
+			attempted.append(candidate)
+			self.model = candidate
 			self._vision_model_discovered = True
 			resp = self._post(messages, max_tokens, stream)
+			if resp.status_code < 400:
+				return resp
+			if resp.status_code in _ROUTE_IS_UNUSABLE:
+				# The upstream rejected the *payload* (or doesn't exist): no later frame
+				# will fare better, so stop spending a round trip on it every time.
+				# A 429/5xx is left out — quota resets, so it stays a candidate.
+				self._dead_models.add(candidate)
+		if attempted:
+			raise requests.HTTPError(
+				f"OmniRoute: 이미지를 읽을 수 있는 모델 {len(attempted)}개를 시도했지만 모두 "
+				f"실패했습니다 (마지막 {resp.status_code}: {_error_message(resp)}). "
+				f"대시보드({self._dashboard_url()})에서 쿼터가 남은 비전 프로바이더를 연결하세요.",
+				response=resp,
+			)
 		return resp
 
-	def _vision_route_rejected(self, resp) -> bool:
-		# Narrow on purpose: only a 400 that actually blames vision support, and only
-		# once per instance — a second such 400 means discovery picked a route that
-		# can't serve us either, and retrying forever would just delay the error.
-		if resp.status_code != 400 or self._vision_model_discovered:
-			return False
-		return "vision" in _error_message(resp).lower()
+	def _should_reroute(self, resp) -> bool:
+		"""Is this a failure on a route *we* chose, that another route might survive?"""
+		if resp.status_code < 400 or resp.status_code == 401:
+			return False       # 401 is auth — no other route fixes it
+		# A combo default is our choice, not the user's, and so is anything we
+		# discovered. An explicitly pinned `--model` is respected: the user asked for
+		# that route, so its error is the answer.
+		return self.model.startswith("auto/") or self._vision_model_discovered
 
-	def _discover_vision_model(self) -> str:
-		"""Return a model id the gateway says can accept an image."""
+	def _vision_candidates(self) -> list[str]:
+		"""Model ids the gateway says can accept an image, widest context first.
+
+		Cached: the model list doesn't change mid-session, and this runs inside a
+		narration turn. Ordered by input capacity because the other measured rejection
+		is a context-limit 400 on a screenshot.
+		"""
+		if self._candidates is not None:
+			return self._candidates
 		with self._readable():
 			resp = requests.get(
 				f"{self.base_url}/models", headers=self._headers(), timeout=_TIMEOUT
@@ -162,20 +211,28 @@ class OmniRouteProvider(VisionProvider):
 			data = resp.json()
 		except ValueError:
 			data = {}
+		found = []
 		for entry in data.get("data") or []:
 			model_id = entry.get("id") or ""
-			# Skip the auto/* combos: they never declare vision themselves, which is
-			# exactly how we got here.
-			if model_id.startswith("auto/"):
+			# Skip the auto/* combos: they never declare vision, which is how we got here.
+			if model_id.startswith("auto/") or not model_id:
 				continue
 			if (entry.get("capabilities") or {}).get("vision"):
-				return model_id
-		raise requests.HTTPError(
-			"OmniRoute 게이트웨이에 이미지를 읽을 수 있는 모델이 없습니다. "
-			f"대시보드({self.base_url.rsplit('/', 1)[0]})에서 비전 지원 프로바이더를 "
-			"연결하세요.",
-			response=resp,
-		)
+				room = entry.get("max_input_tokens") or entry.get("context_length") or 0
+				found.append((room, model_id))
+		if not found:
+			raise requests.HTTPError(
+				"OmniRoute 게이트웨이에 이미지를 읽을 수 있는 모델이 없습니다. "
+				f"대시보드({self._dashboard_url()})에서 비전 지원 프로바이더를 연결하세요.",
+				response=resp,
+			)
+		found.sort(key=lambda pair: pair[0], reverse=True)
+		self._candidates = [model_id for _, model_id in found]
+		return self._candidates
+
+	def _dashboard_url(self) -> str:
+		# The gateway serves its dashboard at the root; base_url points at the /v1 API.
+		return self.base_url[: -len("/v1")] if self.base_url.endswith("/v1") else self.base_url
 
 	def complete(self, messages: Sequence[Message], *, max_tokens: int = 300) -> VisionResponse:
 		resp = self._open(messages, max_tokens, stream=False)

@@ -82,7 +82,7 @@ web/          플랫폼 무관 웹 레퍼런스 클라이언트 (키 없는 demo
 scripts/      CLI 프로토타입(bitgil_demo) · 애드온 빌드(build_addon)
 profiles/     기본 프로파일 팩 6종 (CC BY 4.0)
 docs/         한/영 문서 (설계·근거·QA·로드맵)
-tests/        오프라인 테스트 170개 (코어·애드온 스텁·트리아지·웹 서버·프로바이더 등)
+tests/        오프라인 테스트 175개 (코어·애드온 스텁·트리아지·웹 서버·프로바이더 등)
 ```
 
 라이선스 이중 구조: NVDA가 GPLv2이므로 애드온 본체는 GPLv2, 다른 스크린리더/독립 앱으로의
@@ -128,9 +128,12 @@ python scripts/bitgil_demo.py --image slide.png --provider omniroute
 한도가 작아 스크린샷을 거부하므로 기본값으로 쓰지 않습니다.
 
 콤보가 무엇으로 풀리는지는 **그 게이트웨이에 연결된 프로바이더**에 달려 있어서, 비전 타깃이 없는
-설치에서는 `400 No target in combo ... has confirmed vision support`가 납니다. 이때 어댑터가
-`/v1/models`에서 `capabilities.vision`을 선언한 구체 모델을 찾아 자동으로 갈아타고 재시도합니다
-(세션 동안 기억). 비전 모델이 아예 없으면 대시보드에서 프로바이더를 연결하라고 안내합니다.
+설치에서는 `400 No target in combo ... has confirmed vision support`가 납니다. 게다가
+`capabilities.vision`이 붙은 모델도 실제로는 이미지를 거부하거나(`ERR_BAD_REQUEST`) 쿼터가
+없을 수 있습니다. 그래서 어댑터는 `/v1/models`에서 비전 모델을 **입력 용량 큰 순서로** 최대 3개까지
+차례로 시도하고, 성공한 경로를 세션 동안 유지합니다. 이미지를 못 받는 경로는 영구 제외하고,
+429는 쿼터가 리셋되므로 후보로 남깁니다. 전부 실패하면 시도 횟수와 마지막 이유, 대시보드 주소를
+한 문장으로 알려줍니다. `--model`로 직접 지정한 경우에는 재라우팅하지 않습니다.
 무료 풀(opencode·felo)은 쿼터·IP 제한에 자주 걸리므로, 실사용에는 대시보드에서 상위
 프로바이더(예: OpenRouter)를 하나 연결하는 편이 확실합니다. 게이트웨이에 토큰을 걸었다면
 `OMNIROUTE_API_KEY`(또는 `BITGIL_API_KEY`)만 export하면 자동 인증됩니다.
@@ -151,7 +154,7 @@ python scripts/bitgil_demo.py --image slide.png --provider anthropic --profile l
 
 - **동작:** 라이브 해설(문장 스트리밍)·질의응답·복습 노트·NVDA 설정 패널·프로파일 팩 6종·
   CLI·애드온 빌드, 그리고 인터럽트 트리아지·안전 휴리스틱·목표 추적·플랫폼 무관 웹 클라이언트.
-- **검증:** 오프라인 테스트 **116개 통과**, ruff clean, 시크릿 스캔 clean. 최근 QA 라운드에서
+- **검증:** 오프라인 테스트 **175개 통과**, ruff clean, 시크릿 스캔 clean. 최근 QA 라운드에서
   가드레일·파이프라인·프로바이더·웹 결함을 코드 점검으로 찾아 회귀 테스트와 함께 수정
   ([docs/qa.md](docs/qa.md)). AWS Bedrock은 실 자격증명으로 검증(ap-northeast-2).
 - **남은 것(실기기 필요):** 데스크톱 NVDA에서의 음성/끼어들기 실배선, OS 이벤트 소스(UIA/토스트)
