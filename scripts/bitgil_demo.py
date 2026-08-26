@@ -69,9 +69,11 @@ def main() -> None:
 	src.add_argument("--image", help="path to a screenshot (PNG/JPEG)")
 	src.add_argument("--screen", action="store_true", help="capture the current screen")
 	p.add_argument("--provider", default="ollama",
-	               help="demo (keyless) | ollama | anthropic | bedrock | openai | gemini")
+	               help="demo (keyless) | omniroute (keyless gateway) | ollama | "
+	                    "anthropic | bedrock | openai | gemini")
 	p.add_argument("--model", help="override the provider's default model")
 	p.add_argument("--api-key", help="API key (else read from provider's env var)")
+	p.add_argument("--base-url", help="provider endpoint (ollama / omniroute)")
 	p.add_argument("--profile", default="general", help="profile pack name")
 	p.add_argument("--profiles-dir", default=DEFAULT_PROFILES_DIR)
 	p.add_argument("--ask", default="", help="question about the screen (F2); blank = describe")
@@ -86,6 +88,8 @@ def main() -> None:
 		provider_config["api_key"] = args.api_key
 	if args.model:
 		provider_config["model"] = args.model
+	if args.base_url:
+		provider_config["base_url"] = args.base_url
 	# --model (if given) wins; otherwise the profile's speed tier picks the model.
 	provider = build_provider(args.provider, provider_config, speed=profile.speed)
 
@@ -115,10 +119,13 @@ def main() -> None:
 				f"latency={time.monotonic() - started:.2f}s]"
 			)
 	except Exception as e:
-		sys.exit(
-			f"provider call failed: {e}\n"
-			f"(check the API key / that Ollama is running with a vision model)"
-		)
+		hints = {
+			"omniroute": "(is the OmniRoute gateway running? try --base-url, or a "
+			             "--model whose route still has quota)",
+			"ollama": "(is Ollama running with a vision model pulled?)",
+		}
+		hint = hints.get(provider.name, "(check the API key / that the provider is reachable)")
+		sys.exit(f"provider call failed: {e}\n{hint}")
 
 
 if __name__ == "__main__":
