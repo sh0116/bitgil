@@ -23,6 +23,7 @@ from typing import Iterator, Sequence
 
 import requests
 
+from . import endpoint_errors
 from .base import Message, VisionProvider, VisionResponse
 from .openai_provider import _to_openai  # identical wire format (OpenAI-compatible)
 
@@ -79,13 +80,20 @@ class OmniRouteProvider(VisionProvider):
 			body["stream"] = True
 		return body
 
-	def complete(self, messages: Sequence[Message], *, max_tokens: int = 300) -> VisionResponse:
-		resp = requests.post(
-			f"{self.base_url}/chat/completions",
-			json=self._body(messages, max_tokens, stream=False),
-			headers=self._headers(),
-			timeout=_TIMEOUT,
+	def _readable(self):
+		return endpoint_errors.readable(
+			"OmniRoute 게이트웨이", self.base_url,
+			"게이트웨이가 실행 중인지, 포트가 맞는지 확인하세요(--base-url).",
 		)
+
+	def complete(self, messages: Sequence[Message], *, max_tokens: int = 300) -> VisionResponse:
+		with self._readable():
+			resp = requests.post(
+				f"{self.base_url}/chat/completions",
+				json=self._body(messages, max_tokens, stream=False),
+				headers=self._headers(),
+				timeout=_TIMEOUT,
+			)
 		_raise_for_gateway_error(resp)
 		try:
 			data = resp.json()
@@ -109,7 +117,8 @@ class OmniRouteProvider(VisionProvider):
 		)
 
 	def stream(self, messages: Sequence[Message], *, max_tokens: int = 300) -> Iterator[str]:
-		with requests.post(
+		# _readable() also covers the iteration below: a stream can drop mid-flight.
+		with self._readable(), requests.post(
 			f"{self.base_url}/chat/completions",
 			json=self._body(messages, max_tokens, stream=True),
 			headers=self._headers(),
