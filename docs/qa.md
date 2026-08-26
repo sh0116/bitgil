@@ -31,6 +31,33 @@ source .venv/bin/activate && python -m pytest -q      # 전 테스트
 ruff check core/ tests/ scripts/                       # 린트
 ```
 
+### 0-1. 벤더 키 없이 **실 LLM**로 — 로컬 OmniRoute 게이트웨이
+
+`demo`는 캔에 담긴 문장이라 해설 *품질*은 검증할 수 없다. 실 비전 모델을 벤더 API 키 없이
+붙이려면 로컬 [OmniRoute](https://github.com/diegosouzapw/OmniRoute) 게이트웨이(기본 포트
+20128, OpenAI 호환)를 띄우고 `omniroute` 프로바이더를 쓴다. 추가 SDK는 필요 없다.
+
+```bash
+curl -s http://localhost:20128/v1/models | head -c 200      # 게이트웨이 생존 확인
+python scripts/bitgil_demo.py --image chart.png --provider omniroute
+python web/server.py --provider omniroute --profile learning-chart
+```
+
+**측정된 제약 (라즈베리파이 + OmniRoute v16, 2026-08-26):**
+
+| 콤보 채널 | 스크린샷 요청 결과 |
+|-----------|--------------------|
+| `auto/vision`, `auto/multimodal` | **400** — 후보 전원이 컨텍스트 한도 미달("~1225 tokens") → 기본값으로 부적합 |
+| `auto/best-free` | **400** — 비전 지원 확정 타깃 없음 |
+| `auto/best-vision`, `auto/pro-vision` | 비전 모델로 라우팅됨(현 상태 429 rate limit) → **기본값 채택** |
+| `aug/*` (Augment) | 502 — 구독 인증 필요 |
+
+무료 풀은 상위 제공자의 쿼터·egress IP 차단(DuckDuckGo 챌린지, Vercel IP 블록 등)에 걸릴 수
+있다. 이때 어댑터는 게이트웨이의 원문 오류를 그대로 올린다(`OmniRoute 429: ... Rate limit
+exceeded`) — 사용자가 원인을 듣고 조치할 수 있어야 하므로 상태코드만 던지지 않는다.
+**따라서 이 경로로 해설 품질을 재려면 최소 한 개의 살아있는 비전 라우트가 필요하다**(게이트웨이
+대시보드에 상위 프로바이더 키를 넣거나, 쿼터가 풀린 뒤 재시도).
+
 ## 1. 주요 시나리오 (학습 웨지)
 
 ### S1 — 라이브 강의 해설 (F1, `learning-lecture`)

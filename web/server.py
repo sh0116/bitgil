@@ -61,11 +61,13 @@ def _load_profile(name: str) -> Profile:
 class Bitgil:
 	"""Holds the reused core pipeline + a lock (single-user prototype)."""
 
-	def __init__(self, provider_name: str, model: str, profile_name: str):
+	def __init__(self, provider_name: str, model: str, profile_name: str, base_url: str = ""):
 		self.provider_name = provider_name
 		cfg = {}
 		if model:
 			cfg["model"] = model
+		if base_url:
+			cfg["base_url"] = base_url
 		region = os.environ.get("BITGIL_AWS_REGION")
 		if region:
 			cfg["aws_region"] = region
@@ -304,12 +306,14 @@ def main() -> None:
 	p.add_argument("--host", default="127.0.0.1")
 	p.add_argument("--port", type=int, default=8765)
 	p.add_argument("--provider", default=os.environ.get("BITGIL_PROVIDER", "demo"),
-	               help="demo | anthropic | openai | gemini | ollama")
+	               help="demo | omniroute | anthropic | openai | gemini | ollama")
 	p.add_argument("--model", default=os.environ.get("BITGIL_MODEL", ""))
 	p.add_argument("--profile", default=os.environ.get("BITGIL_PROFILE", "general"))
+	p.add_argument("--base-url", default=os.environ.get("BITGIL_BASE_URL", ""),
+	               help="provider endpoint (ollama / omniroute); blank = its default")
 	args = p.parse_args()
 
-	Handler.bitgil = Bitgil(args.provider, args.model, args.profile)
+	Handler.bitgil = Bitgil(args.provider, args.model, args.profile, args.base_url)
 	server = ThreadingHTTPServer((args.host, args.port), Handler)
 	cfg = Handler.bitgil.config()
 	print(f"Bitgil web on http://{args.host}:{args.port}  "

@@ -10,7 +10,7 @@ from typing import Any, Mapping, Optional
 
 from .base import VisionProvider
 
-_KNOWN = {"demo", "anthropic", "bedrock", "openai", "gemini", "ollama"}
+_KNOWN = {"demo", "anthropic", "bedrock", "openai", "gemini", "ollama", "omniroute"}
 
 
 def build_provider(
@@ -60,6 +60,13 @@ def build_provider(
 		from .ollama_provider import OllamaProvider
 
 		return OllamaProvider(**_pick(cfg, "model", "base_url"))
+	if name == "omniroute":
+		# Local OpenAI-compatible gateway — keyless by default, no SDK needed.
+		from .omniroute_provider import OmniRouteProvider
+
+		return OmniRouteProvider(
+			**_resolve(cfg, OmniRouteProvider, speed, "model", "base_url", "api_key")
+		)
 
 	raise ValueError(f"unknown provider '{name}' (known: {sorted(_KNOWN)})")
 

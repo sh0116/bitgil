@@ -77,12 +77,12 @@ core/         재사용 가능한 코어 로직 (MIT) — 스크린리더·OS �
     engine, context/, live, postprocess/  해설 엔진 · 세션 컨텍스트 · 라이브 루프 · 문장 후처리
     profiles, ocr, review                 YAML 프로파일 · OCR 어댑터 · 복습 노트(F4)
     triage, safety, goal                  앰비언트 코파일럿: 트리아지 · 안전 · 목표 추적
-    providers/                            anthropic·bedrock·openai·gemini·ollama + 팩토리
+    providers/                            anthropic·bedrock·openai·gemini·ollama·omniroute + 팩토리
 web/          플랫폼 무관 웹 레퍼런스 클라이언트 (키 없는 demo 프로바이더 내장)
 scripts/      CLI 프로토타입(bitgil_demo) · 애드온 빌드(build_addon)
 profiles/     기본 프로파일 팩 6종 (CC BY 4.0)
 docs/         한/영 문서 (설계·근거·QA·로드맵)
-tests/        오프라인 테스트 116개 (코어·애드온 스텁·트리아지·웹 서버 등)
+tests/        오프라인 테스트 156개 (코어·애드온 스텁·트리아지·웹 서버·프로바이더 등)
 ```
 
 라이선스 이중 구조: NVDA가 GPLv2이므로 애드온 본체는 GPLv2, 다른 스크린리더/독립 앱으로의
@@ -112,14 +112,30 @@ python web/server.py            # http://localhost:8765 (기본 demo 프로바�
 화면 공유(getDisplayMedia)는 secure context 전용이라 **localhost로 열거나** 원격이면
 `ssh -L 8765:localhost:8765 <pi>`로 터널링하세요.
 
-**② 이미지 한 장을 CLI로 — 실 프로바이더/로컬 모델 필요.**
+**② 실 LLM을 벤더 키 없이 — 로컬 OmniRoute 게이트웨이.**
+[OmniRoute](https://github.com/diegosouzapw/OmniRoute)(MIT)는 여러 상위 프로바이더를
+OpenAI 호환 엔드포인트 하나로 묶어주는 자체 호스팅 게이트웨이입니다. 기본이 키 없음이고
+HTTP만 쓰므로 `omniroute` 프로바이더는 **추가 SDK가 필요 없습니다**(코어 의존성 `requests`만).
+
+```bash
+python web/server.py --provider omniroute --profile learning-chart
+python scripts/bitgil_demo.py --image slide.png --provider omniroute
+# 게이트웨이가 다른 포트/호스트면: --base-url http://localhost:20128/v1
+```
+
+모델은 OmniRoute의 콤보 채널로 지정합니다(`auto/best-vision` 기본, 프로파일 speed 티어가
+`quality`면 `auto/pro-vision`). **주의:** `auto/vision`·`auto/multimodal`은 후보 풀의 컨텍스트
+한도가 작아 스크린샷을 거부하므로 기본값으로 쓰지 않습니다. 무료 풀은 상위 제공자의
+쿼터·IP 제한에 걸릴 수 있고, 그때는 게이트웨이 오류 메시지가 그대로 전달됩니다.
+
+**③ 이미지 한 장을 CLI로 — 실 프로바이더/로컬 모델 필요.**
 
 ```bash
 python scripts/bitgil_demo.py --image slide.png --provider anthropic --profile learning-chart
 # 로컬 모델: --provider ollama --model llava
 ```
 
-**③ `.nvda-addon` 빌드:** `python scripts/build_addon.py` → `dist/bitgil-<version>.nvda-addon`.
+**④ `.nvda-addon` 빌드:** `python scripts/build_addon.py` → `dist/bitgil-<version>.nvda-addon`.
 자세한 사용법은 [docs/development.md](docs/development.md). QA 재현·시나리오는 [docs/qa.md](docs/qa.md).
 
 ## 개발 상태 / Status
