@@ -210,6 +210,16 @@ def _no_gateway_token_in_env(monkeypatch):
 		monkeypatch.delenv(var, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _no_unexpected_model_lookup(monkeypatch):
+	# Rerouting fetches /v1/models. A test that triggers it without saying so would
+	# otherwise reach for a real gateway on the developer's machine.
+	def forbidden(url, **kwargs):
+		raise AssertionError(f"unexpected GET {url} — this test didn't expect a reroute")
+
+	monkeypatch.setattr(omniroute_provider.requests, "get", forbidden)
+
+
 def test_factory_builds_omniroute_keyless_with_vision_default():
 	# No config at all: keyless local gateway, vision-capable combo channel.
 	p = build_provider("omniroute")
@@ -294,9 +304,10 @@ def test_omniroute_stream_parses_sse_and_skips_noise(monkeypatch):
 
 def test_omniroute_error_surfaces_gateway_detail(monkeypatch):
 	# An exhausted free pool must reach the user as its cause, not a bare 403.
+	# Pinned model: the user chose this route, so its error is the answer (no reroute).
 	payload = {"error": {"message": "[403]: insufficient quota [oc/mimo-v2.5-free]",
 	                     "code": "insufficient_quota"}}
-	p = OmniRouteProvider()
+	p = OmniRouteProvider(model="oc/mimo-v2.5-free")
 	_capture_post(monkeypatch, _FakeResponse(status_code=403, payload=payload))
 	with pytest.raises(requests.HTTPError) as excinfo:
 		p.complete([Message(role="user", text="hi")])
@@ -305,7 +316,7 @@ def test_omniroute_error_surfaces_gateway_detail(monkeypatch):
 
 
 def test_omniroute_error_without_json_body_still_raises(monkeypatch):
-	p = OmniRouteProvider()
+	p = OmniRouteProvider(model="oc/mimo-v2.5-free")
 	_capture_post(monkeypatch, _FakeResponse(status_code=502, text="<html>bad gateway</html>"))
 	with pytest.raises(requests.HTTPError):
 		p.complete([Message(role="user", text="hi")])
@@ -366,7 +377,7 @@ def test_http_errors_still_pass_through_unchanged(monkeypatch):
 	# The wrapper must not swallow HTTP errors — the gateway's own 429 text is more
 	# specific than anything we would substitute.
 	payload = {"error": {"message": "[429]: Rate limit exceeded"}}
-	p = OmniRouteProvider()
+	p = OmniRouteProvider(model="oc/mimo-v2.5-free")
 	_capture_post(monkeypatch, _FakeResponse(status_code=429, payload=payload))
 	with pytest.raises(requests.HTTPError) as excinfo:
 		p.complete([Message(role="user", text="hi")])
@@ -442,7 +453,7 @@ def test_omniroute_401_names_the_variable_that_fixes_it(monkeypatch):
 def test_omniroute_403_quota_is_not_reported_as_an_auth_problem(monkeypatch):
 	# The gateway also uses 403 for an exhausted upstream quota; an auth hint there
 	# would send the user off to mint a token that changes nothing.
-	p = OmniRouteProvider()
+	p = OmniRouteProvider(model="oc/mimo-v2.5-free")
 	_capture_post(monkeypatch, _FakeResponse(
 		status_code=403, payload={"error": {"message": "[403]: insufficient quota"}}))
 	with pytest.raises(requests.HTTPError) as excinfo:
@@ -471,22 +482,21 @@ def test_omniroute_recovers_from_a_combo_with_no_vision_target(monkeypatch):
 	assert len(calls["gets"]) == 1
 
 
-def test_omniroute_vision_discovery_retries_only_once(monkeypatch):
-	# If the discovered model is rejected too, surface it — don't loop.
-	calls = _capture_calls(monkeypatch,
-	                       [_FakeResponse(status_code=400, payload=_NO_VISION_TARGET)],
-	                       models_payload=_MODELS)
-	with pytest.raises(requests.HTTPError):
-		OmniRouteProvider().complete([Message(role="user", text="hi", image=b"\x89PNG")])
-	assert len(calls["posts"]) == 2 and len(calls["gets"]) == 1
-
-
-def test_omniroute_other_400s_are_not_retried(monkeypatch):
-	# The context-limit 400 is a different problem; a second call would just waste time.
+def test_omniroute_pinned_model_is_never_rerouted(monkeypatch):
+	# The user asked for this route, so its failure is the answer — silently narrating
+	# through a different model than the one they chose would be worse than the error.
 	calls = _capture_calls(monkeypatch, [_FakeResponse(
-		status_code=400,
-		payload={"error": {"message": "every auto-strategy candidate has a smaller "
-		                              "known context limit"}})])
+		status_code=400, payload={"error": {"message": "context limit exceeded"}})])
+	with pytest.raises(requests.HTTPError):
+		OmniRouteProvider(model="oc/mimo-v2.5-free").complete(
+			[Message(role="user", text="hi", image=b"\x89PNG")])
+	assert len(calls["posts"]) == 1 and calls["gets"] == []
+
+
+def test_omniroute_never_reroutes_on_an_auth_failure(monkeypatch):
+	# No other route fixes a missing token; trying three would just delay the fix.
+	calls = _capture_calls(monkeypatch, [_FakeResponse(
+		status_code=401, payload={"error": {"message": "Authentication required"}})])
 	with pytest.raises(requests.HTTPError):
 		OmniRouteProvider().complete([Message(role="user", text="hi", image=b"\x89PNG")])
 	assert len(calls["posts"]) == 1 and calls["gets"] == []
@@ -511,6 +521,119 @@ def test_omniroute_stream_also_recovers_from_a_vision_incapable_route(monkeypatc
 	p = OmniRouteProvider()
 	assert list(p.stream([Message(role="user", text="hi", image=b"\x89PNG")])) == ["안"]
 	assert p.model == "ddgw/claude-haiku-4-5"
+
+
+# --- OmniRoute: a vision flag is a claim, not a working route --------------------
+#
+# Measured on the owner's Mac (2026-08-27) after route discovery shipped: the model it
+# picked declared capabilities.vision and still refused the screenshot
+# ("DuckDuckGo AI Chat error: ERR_BAD_REQUEST"), and another route answered 429. So one
+# lookup isn't enough — a failed route has to hand off to the next candidate.
+
+def _route_calls(monkeypatch, by_model, models_payload):
+	"""Answer each POST from `by_model[requested model]`; serve GET /models once."""
+	calls = {"models": [], "gets": 0}
+
+	def fake_post(url, **kwargs):
+		model = kwargs["json"]["model"]
+		calls["models"].append(model)
+		return by_model[model]
+
+	def fake_get(url, **kwargs):
+		calls["gets"] += 1
+		return _FakeResponse(payload=models_payload)
+
+	monkeypatch.setattr(omniroute_provider.requests, "post", fake_post)
+	monkeypatch.setattr(omniroute_provider.requests, "get", fake_get)
+	return calls
+
+
+# Widest input capacity first is the order discovery uses, so oc/big precedes ddgw/mid.
+_CAPACITY_MODELS = {"data": [
+	{"id": "auto/pro-vision", "capabilities": {"vision": True}},        # combo — skipped
+	{"id": "ddgw/mid", "capabilities": {"vision": True}, "max_input_tokens": 409600},
+	{"id": "oc/big", "capabilities": {"vision": True}, "max_input_tokens": 1048576},
+	{"id": "oc/text-only", "capabilities": {"tool_calling": True}},     # no vision — skipped
+]}
+
+_BAD_IMAGE_REQUEST = {"error": {"message": "[400]: DuckDuckGo AI Chat error: ERR_BAD_REQUEST"}}
+_RATE_LIMITED = {"error": {"message": "[429]: Error from provider (Console): Rate limit "
+                                      "exceeded. Please try again later."}}
+
+
+def test_omniroute_falls_forward_when_a_vision_model_refuses_the_image(monkeypatch):
+	ok = _FakeResponse(payload={"choices": [{"message": {"content": "막대 네 개"}}]})
+	calls = _route_calls(monkeypatch, {
+		"auto/pro-vision": _FakeResponse(status_code=400, payload=_NO_VISION_TARGET),
+		"oc/big": _FakeResponse(status_code=400, payload=_BAD_IMAGE_REQUEST),
+		"ddgw/mid": ok,
+	}, _CAPACITY_MODELS)
+	p = build_provider("omniroute", speed="quality")
+	out = p.complete([Message(role="user", text="설명해줘", image=b"\x89PNG")])
+	assert out.text == "막대 네 개"
+	# Widest context first, then on to the next candidate when it refused the image.
+	assert calls["models"] == ["auto/pro-vision", "oc/big", "ddgw/mid"]
+	assert p.model == "ddgw/mid"
+	# The route that can't take an image is dropped for good: the next frame goes
+	# straight to the one that worked, and the model list isn't fetched again.
+	p.complete([Message(role="user", text="다시", image=b"\x89PNG")])
+	assert calls["models"][3:] == ["ddgw/mid"] and calls["gets"] == 1
+
+
+def test_omniroute_keeps_a_rate_limited_route_for_later(monkeypatch):
+	# 429 means "not now", not "never" — quota resets, and that route may be the best
+	# one available, so it must not be struck off the list.
+	ok = _FakeResponse(payload={"choices": [{"message": {"content": "설명"}}]})
+	_route_calls(monkeypatch, {
+		"auto/pro-vision": _FakeResponse(status_code=429, payload=_RATE_LIMITED),
+		"oc/big": _FakeResponse(status_code=429, payload=_RATE_LIMITED),
+		"ddgw/mid": ok,
+	}, _CAPACITY_MODELS)
+	p = build_provider("omniroute", speed="quality")
+	assert p.complete([Message(role="user", text="hi", image=b"\x89PNG")]).text == "설명"
+	assert p._dead_models == set()
+
+
+def test_omniroute_reroutes_when_the_combo_itself_is_rate_limited(monkeypatch):
+	# Observed live: the combo's own pool was exhausted (429) rather than vision-blind.
+	# A concrete route with quota still gets the user their narration.
+	ok = _FakeResponse(payload={"choices": [{"message": {"content": "해설"}}]})
+	calls = _route_calls(monkeypatch, {
+		"auto/best-vision": _FakeResponse(status_code=429, payload=_RATE_LIMITED),
+		"oc/big": ok,
+	}, _CAPACITY_MODELS)
+	p = OmniRouteProvider()
+	assert p.complete([Message(role="user", text="hi", image=b"\x89PNG")]).text == "해설"
+	assert calls["models"] == ["auto/best-vision", "oc/big"]
+
+
+def test_omniroute_reports_every_route_it_tried_when_all_fail(monkeypatch):
+	calls = _route_calls(monkeypatch, {
+		"auto/pro-vision": _FakeResponse(status_code=400, payload=_NO_VISION_TARGET),
+		"oc/big": _FakeResponse(status_code=400, payload=_BAD_IMAGE_REQUEST),
+		"ddgw/mid": _FakeResponse(status_code=429, payload=_RATE_LIMITED),
+	}, _CAPACITY_MODELS)
+	p = build_provider("omniroute", speed="quality")
+	with pytest.raises(requests.HTTPError) as excinfo:
+		p.complete([Message(role="user", text="hi", image=b"\x89PNG")])
+	spoken = str(excinfo.value)
+	assert "2개를 시도했지만 모두 실패" in spoken     # how much was already tried
+	assert "Rate limit exceeded" in spoken           # the last gateway reason survives
+	assert "http://localhost:20128" in spoken        # and where to fix it
+	assert len(calls["models"]) == 3
+
+
+def test_omniroute_route_attempts_are_capped(monkeypatch):
+	# Each attempt is a round trip inside a narration turn, so the fan-out is bounded.
+	many = {"data": [{"id": f"p{i}/m", "capabilities": {"vision": True},
+	                  "max_input_tokens": 1000 - i} for i in range(8)]}
+	failing = {f"p{i}/m": _FakeResponse(status_code=429, payload=_RATE_LIMITED)
+	           for i in range(8)}
+	failing["auto/best-vision"] = _FakeResponse(status_code=429, payload=_RATE_LIMITED)
+	calls = _route_calls(monkeypatch, failing, many)
+	with pytest.raises(requests.HTTPError):
+		OmniRouteProvider().complete([Message(role="user", text="hi", image=b"\x89PNG")])
+	assert calls["models"] == ["auto/best-vision", "p0/m", "p1/m", "p2/m"]
 
 
 def test_omniroute_non_json_success_body_raises_readable_error(monkeypatch):
