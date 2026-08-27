@@ -172,6 +172,38 @@ python scripts/bitgil_demo.py --provider omniroute --list-routes
 - **재현:** CLI `python scripts/bitgil_demo.py --image slide.png --ask "제목이 뭐야?"`
   (실 프로바이더 또는 ollama 필요). 배관 자체는 `tests/test_pipeline.py`가 커버.
 
+### S9 — 시험지를 첨부해 대화하는 모드 (문서 직독, `scripts/bitgil_tutor.py`)
+
+- **목적:** 시험지 PDF를 열면 **무슨 시험지인지 먼저 말하고 기다린다.** 지문·선택지는 텍스트
+  레이어 원문 그대로(모델 미호출), 도표만 비전, 모델이 말한 숫자는 원문과 대조.
+- **어디서 테스트하나:** 지금 이 대화 형태는 **터미널 REPL이 전부다.** `web/server.py`에는
+  PDF 업로드 엔드포인트가 없다(`/config`, `/narrate`, `/narrate/stream`, `/triage`,
+  `/configure`만). 브라우저에서 파일을 끌어다 놓고 대화하는 화면은 **아직 없는 기능**이다
+  (§5 참조). 그래서 키 없이:
+
+  ```bash
+  # 대화형 — 열면 개요를 말하고 프롬프트에서 기다린다
+  python scripts/bitgil_tutor.py --pdf docs/demo/모의고사_샘플.pdf
+
+  # 스크립트로 한 번에 (여러 번 지정하면 순서대로)
+  python scripts/bitgil_tutor.py --pdf docs/demo/모의고사_샘플.pdf \
+    --ask "2번 읽어줘" --ask "선택지 다시" --ask "도표 설명해줘"
+
+  # 실 모델로 (도표 설명·물어보기만 왕복한다)
+  python scripts/bitgil_tutor.py --pdf 모의고사.pdf --provider bedrock --profile learning-chart
+  ```
+
+- **기대/합격 기준:**
+  - **첫 응답이 개요**이고 `[원문]`으로 표시되며, **프로바이더 호출이 0회**다(열기만 해도
+    비용·환각이 생기면 안 된다). 파일명을 읽지 않고 시험지에 **인쇄된 머리글**을 읽는다.
+  - 개요에 문항 수·번호 범위, **도표가 딸린 문항 번호**, 선택지를 못 읽은 문항 번호가 있고,
+    마지막이 질문으로 끝나 **학생의 말을 기다린다**(먼저 해설을 시작하지 않는다).
+  - `2번 읽어줘` → `[원문 0.0초]`(왕복 없음), 지문 + 선택지 5개.
+  - `도표 설명해줘` → `[모델 N초]`, 원문에 없는 숫자가 나오면 `↳ 원문 미확인 숫자:` 고지.
+  - `다시` → 직전 응답이 **출처 표시까지 그대로**(모델 답이 `[원문]`으로 바뀌면 결함).
+  - 스캔 PDF(텍스트 레이어 없음) → 무엇을 하면 되는지 담긴 한국어 한 문장으로 거부.
+  - 자동 검증: `tests/test_tutor.py`, `tests/test_document.py`.
+
 ## 2. 안전 시나리오 (인터럽트 트리아지)
 
 프로바이더가 무엇을 답하든 **결정론적 안전 정책**(triage.apply_policy)과 **키워드 휴리스틱**
@@ -239,6 +271,10 @@ Pi에서 `demo` 프로바이더로 실행한 결과.
 
 ## 5. 아직 검증 못 한 것 (실기기 필요)
 
+- **브라우저에서 시험지를 첨부해 대화하는 화면** — 아직 없는 기능이다. 코어
+  (`tutor.TutorSession`)는 UI와 무관하게 완성돼 있지만, 웹으로 노출하려면 업로드 엔드포인트
+  (PDF 수신 → `load_pdf` → 세션 보관)와 대화 엔드포인트(`respond`), 그리고 출처 표시
+  (`원문`/`모델`)를 화면에도 남기는 UI가 필요하다. 지금 테스트 경로는 S9의 터미널 REPL이다.
 - NVDA 실제 음성 출력·SpeechBridge 끼어들기 실배선(Windows 전용).
 - OS 이벤트 소스(UIA/토스트)로 트리아지를 실제 구동(현재는 `/triage` curl/향후 소스로만).
 - 실 LLM 해설 **품질**(정확도·환각률) — [user-testing.md](user-testing.md)의 오류

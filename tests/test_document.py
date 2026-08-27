@@ -15,6 +15,7 @@ from PIL import Image
 from bitgil_core.document import (
 	ExamDocument,
 	Question,
+	header_of,
 	load_pdf,
 	render_page,
 	split_questions,
@@ -155,6 +156,47 @@ def test_question_source_text_includes_choices():
 	assert "120" in source and "200" in source and "90" in source
 
 
+# --- 머리글: 무슨 시험지인지 -------------------------------------------------------
+
+def test_header_takes_the_lines_before_the_first_question():
+	text = "2026 mock exam\nSocial studies\n1. First question\n① a"
+	assert header_of(text, 1) == "2026 mock exam\nSocial studies"
+
+
+def test_header_stops_at_two_lines():
+	# 지시문까지 다 읽으면 학생이 첫 문항에 닿기까지 머리글을 한참 들어야 한다.
+	text = "Title\nSubject\nRead carefully.\nUse a pencil.\n1. First"
+	assert header_of(text, 1).count("\n") == 1
+
+
+def test_header_ignores_a_page_number_line():
+	assert header_of("2\nTitle\n1. First", 1) == "Title"
+
+
+def test_header_is_not_cut_short_by_a_date_that_looks_like_a_number():
+	# "2026. 8." 은 문항 번호가 아니다 — 여기서 자르면 머리글(과목)이 사라진다.
+	text = "2026. 8. 27.\nSocial studies\n3. Third question"
+	assert "Social studies" in header_of(text, 3)
+
+
+def test_header_of_a_page_starting_with_a_question_is_empty():
+	assert header_of("1. First question\n① a", 1) == ""
+
+
+def test_document_lists_figure_and_choiceless_questions():
+	doc = ExamDocument(
+		path=None,
+		pages=[""],
+		questions=[
+			Question(number=1, stem="a", choices=["가", "나"]),
+			Question(number=2, stem="b", choices=["가"], figure_text="1 2 3 4"),
+			Question(number=3, stem="c"),
+		],
+	)
+	assert doc.figure_numbers() == [2]
+	assert doc.choiceless_numbers() == [3]
+
+
 # --- load_pdf ------------------------------------------------------------------
 
 def test_load_pdf_extracts_text_layer_and_questions(tmp_path):
@@ -165,6 +207,14 @@ def test_load_pdf_extracts_text_layer_and_questions(tmp_path):
 	assert [q.number for q in doc.questions] == [1, 2]
 	assert doc.question(1).stem == "Read the chart below."
 	assert doc.question(9) is None
+
+
+def test_load_pdf_keeps_the_printed_header_as_the_title(tmp_path):
+	path = tmp_path / "exam.pdf"
+	path.write_bytes(
+		_pdf_with_text(["2026 mock exam", "1. Read the chart below.", "2. What is shown?"])
+	)
+	assert load_pdf(path).title == "2026 mock exam"
 
 
 def test_load_pdf_rejects_a_scanned_pdf_with_actionable_korean(tmp_path):
