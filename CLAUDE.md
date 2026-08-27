@@ -25,7 +25,7 @@
 
 ```bash
 source .venv/bin/activate
-python -m pytest -q                        # 오프라인 테스트 (현재 293개)
+python -m pytest -q                        # 오프라인 테스트 (현재 294개)
 ruff check core/ tests/ scripts/
 ```
 
