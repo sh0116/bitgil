@@ -246,14 +246,34 @@ def test_describe_figure_uses_page_text_not_just_the_question():
 
 # --- 물어보기: 근거는 문항 원문으로 한정 -------------------------------------------
 
-def test_ask_grounds_the_prompt_on_the_question_source():
-	session, provider, _ = _session(reply="무엇을 묻는지 설명합니다.")
+def test_ask_shows_the_page_image_so_the_model_reads_the_real_notation():
+	# 텍스트 레이어는 수식·지수를 눌러 버린다("5^{-1/2}"→"5 -1/2"). 그 눌린 문자열만
+	# 모델에 주면 거듭제곱을 곱셈으로 잘못 읽고 엉뚱한 계산을 지어낸다(환각은 안전 문제).
+	# 그래서 물어보기는 그 문항이 있는 페이지를 **그림으로** 보여 주고 답하게 한다.
+	session, provider, doc = _session(reply="무엇을 묻는지 설명합니다.")
 	session.read_question(1)
 	session.ask("이 문제 뭘 묻는 거야?")
-	texts = [m.text for m in provider.last_messages]
-	assert any("과외 선생님" in t for t in texts)
-	assert any("다음 표의 최고점은?" in t for t in texts)
-	assert all(m.image is None for m in provider.last_messages)   # 텍스트만 → 빠르고 싸다
+	assert doc.rendered == (0, 150)                                    # 페이지를 그림으로 렌더링
+	assert any(m.image is not None for m in provider.last_messages)    # 그림을 넘긴다
+	texts = [m.text or "" for m in provider.last_messages]
+	assert any("이 문제 뭘 묻는 거야?" in t for t in texts)             # 학생의 질문을 전달
+
+
+def test_ask_falls_back_to_text_when_the_page_cannot_be_rendered():
+	# poppler가 없어 그림을 못 만드는 환경(CI 등)에서도 대화가 끊기면 안 된다 — 원문
+	# 텍스트로 폴백해 답하되, 근거는 문항 원문으로 못박는다.
+	session, provider, doc = _session(reply="무엇을 묻는지 설명합니다.")
+	doc.render_page = lambda index, dpi=150: (_ for _ in ()).throw(
+		RuntimeError("페이지 그림을 만들려면 pdftoppm이 필요합니다.")
+	)
+	session.read_question(1)
+	reply = session.ask("이 문제 뭘 묻는 거야?")
+	assert provider.calls == 1
+	assert reply.grounded is False
+	texts = [m.text or "" for m in provider.last_messages]
+	assert any("과외 선생님" in t for t in texts)                      # 텍스트 폴백 프롬프트
+	assert any("다음 표의 최고점은?" in t for t in texts)              # 문항 원문을 근거로
+	assert all(m.image is None for m in provider.last_messages)       # 그림 없이 텍스트만
 
 
 def test_ask_before_picking_a_question_asks_which_one():
