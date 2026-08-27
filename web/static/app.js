@@ -66,9 +66,12 @@ function grabFrame() {
 	});
 }
 
-// One-shot: POST frame, get the whole narration back, then speak it.
-async function narrateOnce(blob) {
-	const res = await fetch("/narrate", {
+// One-shot: POST frame, get the whole narration back, then speak it. `force` is
+// set when the user asked ("지금 화면 설명") — the server then speaks regardless of
+// how much the screen changed. Without it the server stays quiet unless the change
+// is salient, so the auto loop no longer reads every frame out loud.
+async function narrateOnce(blob, force) {
+	const res = await fetch("/narrate" + (force ? "?force=1" : ""), {
 		method: "POST",
 		headers: { "Content-Type": "image/jpeg" },
 		body: blob,
@@ -77,13 +80,16 @@ async function narrateOnce(blob) {
 	if (data.changed && data.text) {
 		addLog(data.text, data.reason);
 		speak(data.text);
+	} else if (force) {
+		// 요청했는데 할 말이 없으면 침묵은 고장처럼 들립니다 — 무슨 상태인지 말합니다.
+		setStatus("지금 화면에서 새로 설명할 것을 찾지 못했습니다.");
 	}
 }
 
 // Streaming: read newline-delimited sentences as they generate and speak each,
 // so the user hears the first phrase without waiting for the whole response (F1).
-async function narrateStream(blob) {
-	const res = await fetch("/narrate/stream", {
+async function narrateStream(blob, force) {
+	const res = await fetch("/narrate/stream" + (force ? "?force=1" : ""), {
 		method: "POST",
 		headers: { "Content-Type": "image/jpeg" },
 		body: blob,
@@ -112,19 +118,37 @@ async function narrateStream(blob) {
 	flush(buf);
 }
 
-async function tick() {
+// Observe one frame. `force` = the user asked; otherwise the server decides whether
+// the change is worth speaking. One request at a time so frames don't pile up.
+async function observe(force) {
 	if (inFlight || !stream) return;
 	const blob = await grabFrame();
 	if (!blob) return;
 	inFlight = true;
 	try {
-		if ($("streamOn").checked) await narrateStream(blob);
-		else await narrateOnce(blob);
+		if ($("streamOn").checked) await narrateStream(blob, force);
+		else await narrateOnce(blob, force);
 	} catch (e) {
 		setStatus("백엔드 통신 오류: " + e.message);
 	} finally {
 		inFlight = false;
 	}
+}
+
+// The periodic loop only *auto* narrates when the user left auto-notify on; even
+// then the server speaks only on salient changes. With it off, the screen is
+// watched but silent until "지금 화면 설명".
+function tick() {
+	if (!$("autoNotify").checked) return;
+	observe(false);
+}
+
+// Trigger ①: the user explicitly asks for the current screen, right now.
+function describeNow() {
+	if (!stream) { setStatus("먼저 화면 공유를 시작하세요."); return; }
+	if (inFlight) return;
+	setStatus("지금 화면을 설명합니다…");
+	observe(true);
 }
 
 async function start() {
@@ -145,7 +169,10 @@ async function start() {
 	const intervalMs = Math.max(500, parseFloat($("interval").value || "1.5") * 1000);
 	timer = setInterval(tick, intervalMs);
 	$("toggle").textContent = "화면 공유 중지";
-	setStatus("화면을 해설하는 중… (관찰 주기 " + intervalMs / 1000 + "초)");
+	$("describe").disabled = false;
+	setStatus(
+		"화면을 지켜보는 중입니다. 크게 바뀌면 알려 드리고, 언제든 “지금 화면 설명”(Alt+D)을 누르면 설명합니다.",
+	);
 }
 
 function stop() {
@@ -155,15 +182,23 @@ function stop() {
 	stream = null;
 	speechSynthesis.cancel();
 	$("toggle").textContent = "화면 공유 시작";
+	$("describe").disabled = true;
 	setStatus("중지됨.");
 }
 
 $("toggle").addEventListener("click", () => (stream ? stop() : start()));
+$("describe").addEventListener("click", describeNow);
+
+document.addEventListener("keydown", (e) => {
+	if (e.key === "Escape") { speechSynthesis.cancel(); return; }
+	if (e.altKey && e.key.toLowerCase() === "d") { e.preventDefault(); describeNow(); }
+});
 
 function applyConfig(cfg) {
 	maxDim = cfg.max_image_dim || maxDim;
 	if (cfg.interval) $("interval").value = cfg.interval;
 	if (cfg.density) $("density").value = cfg.density;
+	if (typeof cfg.salient_threshold === "number") $("sensitivity").value = cfg.salient_threshold;
 	if (Array.isArray(cfg.profiles)) {
 		const sel = $("profile");
 		sel.innerHTML = "";
@@ -186,7 +221,11 @@ async function reconfigure() {
 		const res = await fetch("/configure", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ profile: $("profile").value, density: $("density").value }),
+			body: JSON.stringify({
+				profile: $("profile").value,
+				density: $("density").value,
+				salient_threshold: parseFloat($("sensitivity").value),
+			}),
 		});
 		const cfg = await res.json();
 		if (cfg.error) { setStatus("설정 오류: " + cfg.error); return; }
@@ -198,6 +237,7 @@ async function reconfigure() {
 }
 $("profile").addEventListener("change", reconfigure);
 $("density").addEventListener("change", reconfigure);
+$("sensitivity").addEventListener("change", reconfigure);
 
 // Reflect backend config on load.
 fetch("/config")

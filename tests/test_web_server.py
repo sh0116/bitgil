@@ -118,6 +118,42 @@ def test_narrate_change_detection_gates_llm(base_url):
 	assert changed["changed"] is True and changed["text"]
 
 
+def test_narrate_force_speaks_even_without_a_change(base_url):
+	# 트리거 ①: 사용자가 직접 "지금 화면 설명"을 부르면, 화면이 그대로여도 설명한다.
+	_post(base_url + "/narrate", _frame("a"))              # baseline 설정
+	same = json.loads(_post(base_url + "/narrate", _frame("a"))[1])
+	assert same["changed"] is False                        # 그대로면 조용하다
+	forced = json.loads(_post(base_url + "/narrate?force=1", _frame("a"))[1])
+	assert forced["changed"] is True and forced["text"]
+	assert forced["reason"] == "request"
+
+
+def test_high_threshold_silences_auto_but_force_still_speaks(base_url):
+	# 트리거 ②: 자동 낭독은 큰 변화만. 문턱을 높이면 a→b(≈0.48) 변화도 자동으로는 조용하고,
+	# 그래도 요청하면 말한다 — 도우미는 사용자가 원할 때 말한다.
+	_json_post(base_url + "/configure", {"salient_threshold": 0.9})
+	first = json.loads(_post(base_url + "/narrate", _frame("a"))[1])
+	assert first["changed"] is True                        # 첫 프레임은 거리 1.0 → 큰 변화
+	quiet = json.loads(_post(base_url + "/narrate", _frame("b"))[1])
+	assert quiet["changed"] is False and quiet["reason"] == "minor"
+	forced = json.loads(_post(base_url + "/narrate?force=1", _frame("b"))[1])
+	assert forced["changed"] is True and forced["text"]
+
+
+def test_config_and_configure_carry_the_salient_threshold(base_url):
+	cfg = json.loads(_get(base_url + "/config")[1])
+	assert "salient_threshold" in cfg
+	status, d = _json_post(base_url + "/configure", {"salient_threshold": 0.5})
+	assert status == 200 and abs(d["salient_threshold"] - 0.5) < 1e-9
+
+
+def test_configure_non_numeric_salient_threshold_is_400(base_url):
+	status, body = _post(
+		base_url + "/configure", json.dumps({"salient_threshold": "abc"}).encode()
+	)
+	assert status == 400
+
+
 def test_narrate_empty_body_is_400(base_url):
 	status, body = _post(base_url + "/narrate", b"")
 	assert status == 400

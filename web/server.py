@@ -60,6 +60,13 @@ from bitgil_core.tutor import TutorSession  # noqa: E402
 _STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 _PROFILES = os.path.join(_REPO, "profiles")
 
+# 화면 해설 모드의 "자동으로 말할 만큼 큰 변화" 기준. 변화 감지 게이트(hash_threshold,
+# 프로파일별 0.12 등)는 "프레임이 조금이라도 달라졌는가"를 보고 baseline을 갱신하는 반면,
+# 이 문턱은 그보다 높아서 **사용자가 요청하지 않아도 끼어들 만큼 큰 변화**만 자동 낭독으로
+# 넘깁니다. 나머지는 조용히 있다가 "지금 화면 설명"으로 부를 때 말합니다 — 도우미는 사용자가
+# 원할 때 말해야지, 매 프레임을 무지성으로 읊지 않습니다.
+_DEFAULT_SALIENT = 0.35
+
 
 def _profile_or(name: str, fallback: Profile) -> Profile:
 	"""Load a named profile pack, or fall back — never exits (unlike `_load_profile`)."""
@@ -116,6 +123,7 @@ class Bitgil:
 		# learning-chart 프로파일을 씁니다(없는 설치에서는 활성 프로파일로 폴백).
 		self.tutor = TutorHost(self.provider, _profile_or("learning-chart", profile))
 		self.goal = GoalTracker()
+		self.salient_threshold = _DEFAULT_SALIENT
 		self._lock = threading.Lock()
 		self._apply_profile(_load_profile(profile_name))
 
@@ -124,12 +132,16 @@ class Bitgil:
 		self.engine = NarrationEngine(self.provider, profile)
 		self.detector = ChangeDetector(hash_threshold=profile.hash_threshold)
 
-	def reconfigure(self, profile_name: str = "", density: str = "") -> dict:
+	def reconfigure(self, profile_name: str = "", density: str = "",
+	                salient_threshold: float = None) -> dict:
 		"""Rebuild the pipeline with a new profile / density (keeps the provider)."""
 		with self._lock:
 			profile = _load_profile(profile_name) if profile_name else self.profile
 			if density and density != "profile":
 				profile.narration_density = density
+			if salient_threshold is not None:
+				# 0(모든 변화 자동 낭독)..1(요청할 때만) 사이로 죕니다.
+				self.salient_threshold = max(0.0, min(1.0, salient_threshold))
 			self._apply_profile(profile)
 			self.goal.clear()
 		return self.config()
@@ -143,6 +155,7 @@ class Bitgil:
 			"density": self.profile.narration_density,
 			"interval": self.profile.observe_interval,
 			"max_image_dim": self.profile.max_image_dim or 1280,
+			"salient_threshold": self.salient_threshold,
 		}
 
 	@staticmethod
@@ -151,16 +164,35 @@ class Bitgil:
 			return sorted(load_builtin_profiles(_PROFILES).keys())
 		return ["general"]
 
-	def narrate(self, frame: bytes) -> dict:
+	def _salient(self, result) -> bool:
+		"""자동으로 끼어들 만큼 큰 변화인가. 이미 계산된 visual_distance를 재사용합니다 —
+		추가 모델 호출 없이, 텍스트가 바뀌었거나 시각 변화가 문턱을 넘으면 True."""
+		return bool(result.text_changed or result.visual_distance >= self.salient_threshold)
+
+	def narrate(self, frame: bytes, force: bool = False) -> dict:
+		"""화면 프레임을 해설합니다.
+
+		`force`는 사용자가 **직접 요청한** 경우("지금 화면 설명")로, 변화 여부와 무관하게
+		해설합니다. 그렇지 않은 자동 관찰에서는 **큰 변화만** 말합니다 — 매 프레임을 읊는 대신
+		조용히 지켜보다가, 사용자가 부르거나 화면이 크게 바뀔 때만 소통합니다.
+		"""
 		with self._lock:
 			result = self.detector.evaluate(frame)
-			if not result.changed:
-				return {"changed": False, "text": "", "reason": "no-change"}
+			salient = self._salient(result)
+			if not force and not salient:
+				# 조용히 있습니다. no-change(전혀 안 바뀜)와 minor(조금 바뀜)를 구분해
+				# 클라이언트가 "관찰 중"임을 알 수 있게 합니다.
+				reason = "no-change" if not result.changed else "minor"
+				return {"changed": False, "salient": False,
+				        "visual_distance": round(result.visual_distance, 3),
+				        "text": "", "reason": reason}
 			text = self.engine.narrate(frame).text
 			self.goal.note(text)  # feed activity context for triage relevance
-			return {"changed": True, "text": text, "reason": result.reason}
+			return {"changed": True, "salient": salient,
+			        "visual_distance": round(result.visual_distance, 3),
+			        "text": text, "reason": "request" if force else (result.reason or "visual")}
 
-	def narrate_stream(self, frame: bytes):
+	def narrate_stream(self, frame: bytes, force: bool = False):
 		"""Yield narration sentence-by-sentence for low perceived latency (F1).
 
 		The pipeline lock is deliberately held for the whole stream: this is a
@@ -168,10 +200,13 @@ class Bitgil:
 		— rather than interleaving a second request's mutations of the shared
 		engine/detector/goal — is the correct trade-off here. A multi-user server
 		would give each session its own engine instead; tracked in docs/qa.md §5.
+
+		자동 관찰에서는 큰 변화만 스트리밍합니다(narrate와 같은 규칙). `force`면 요청으로 보고
+		변화와 무관하게 해설합니다.
 		"""
 		self._lock.acquire()
 		try:
-			if not self.detector.evaluate(frame).changed:
+			if not force and not self._salient(self.detector.evaluate(frame)):
 				return
 			spoken = []
 			# narrate_stream already yields whole, glossary-applied sentences.
@@ -342,6 +377,11 @@ class TutorHost:
 			return self.review.to_markdown()
 
 
+def _force(query: str) -> bool:
+	"""쿼리스트링의 force 플래그 — 사용자가 직접 요청한 해설인지(변화 게이트를 건너뜁니다)."""
+	return urllib.parse.parse_qs(query).get("force", ["0"])[0] in ("1", "true", "yes")
+
+
 def _safe_name(name: str) -> str:
 	"""업로드된 파일명을 파일 이름 한 조각으로 축소(경로 탈출·제어문자 차단, 한글 유지)."""
 	base = os.path.basename((name or "").replace("\\", "/")).strip()
@@ -458,13 +498,13 @@ class Handler(BaseHTTPRequestHandler):
 				self._send_json({"error": "empty body"}, status=400)
 				return
 			try:
-				self._send_json(self.bitgil.narrate(body))
+				self._send_json(self.bitgil.narrate(body, force=_force(query)))
 			except Exception as e:  # never crash the loop; surface as spoken error
 				self._send_json({"changed": True, "text": f"오류: {e}", "reason": "error"})
 			return
 
 		if path == "/narrate/stream":
-			self._stream_narrate(body)
+			self._stream_narrate(body, force=_force(query))
 			return
 
 		if path == "/triage":
@@ -483,10 +523,15 @@ class Handler(BaseHTTPRequestHandler):
 				self._send_json({"error": "invalid json"}, status=400)
 				return
 			try:
+				salient = data.get("salient_threshold", None)
 				cfg = self.bitgil.reconfigure(
 					profile_name=str(data.get("profile", "")),
 					density=str(data.get("density", "")),
+					salient_threshold=float(salient) if salient is not None else None,
 				)
+			except (TypeError, ValueError):
+				self._send_json({"error": "salient_threshold must be a number"}, status=400)
+				return
 			except SystemExit as e:  # unknown profile name
 				self._send_json({"error": str(e)}, status=400)
 				return
@@ -495,7 +540,7 @@ class Handler(BaseHTTPRequestHandler):
 
 		self.send_error(404, "not found")
 
-	def _stream_narrate(self, frame: bytes) -> None:
+	def _stream_narrate(self, frame: bytes, force: bool = False) -> None:
 		"""Stream sentences as newline-delimited text (no Content-Length; close-terminated)."""
 		self.send_response(200)
 		self.send_header("Content-Type", "text/plain; charset=utf-8")
@@ -503,7 +548,7 @@ class Handler(BaseHTTPRequestHandler):
 		self.send_header("Connection", "close")
 		self.end_headers()
 		try:
-			for sentence in self.bitgil.narrate_stream(frame):
+			for sentence in self.bitgil.narrate_stream(frame, force=force):
 				self.wfile.write((sentence + "\n").encode("utf-8"))
 				self.wfile.flush()
 		except Exception as e:
