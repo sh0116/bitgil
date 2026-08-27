@@ -104,7 +104,9 @@ def main() -> None:
 	review = ReviewLog(
 		clock=lambda: time.strftime("%H:%M:%S"), provider=provider.name, model=model
 	)
-	engine = NarrationEngine(provider, profile, review_log=review)
+	# 노트는 세션만 적습니다 — 엔진에도 주면 도표 설명이 두 번 남습니다(엔진의 원본 +
+	# 세션의 고지 붙은 문장). 남겨야 하는 쪽은 고지가 붙은 문장입니다.
+	engine = NarrationEngine(provider, profile)
 	session = TutorSession(document, engine, review_log=review, render_dpi=args.dpi)
 
 	# 쪽수·문항 수는 개요가 낭독으로 말해 줍니다 — 여기서 되풀이하면 같은 정보를 두 번 듣습니다.
