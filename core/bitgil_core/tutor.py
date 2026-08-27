@@ -49,6 +49,15 @@ _NEXT_WORDS = ("다음", "그다음", "넘어가")
 _PREV_WORDS = ("이전", "앞 문제", "전 문제", "돌아가")
 _REPEAT_WORDS = ("다시", "한 번 더", "반복")
 _OVERVIEW_WORDS = ("몇 문제", "목록", "전체", "어디까지", "몇 개")
+# "1번부터 같이 볼까요?"에 대한 학생의 승낙 — 개요를 듣고 첫 문제로 들어가는 말.
+_START_WORDS = ("시작", "처음부터", "같이 풀", "같이 보", "함께 풀", "첫 문제")
+# 정답을 대신 골라 달라는 요청. 여기에 답을 불러 주면 학습을 대신해 버리고, 듣는 사람은
+# 검증할 수 없습니다(모듈 첫머리의 가르치는 태도 참고) — 그래서 코칭으로 되돌립니다.
+# "답해줘"(설명 요청)와 섞이지 않도록, '답'만으로는 걸리지 않게 구체적인 어구만 담습니다.
+_ANSWER_WORDS = (
+	"정답", "답이 뭐", "답은 뭐", "답 뭐", "몇 번이 답", "답 알려", "답 좀",
+	"답이야", "답인가", "답일까", "답을 골라", "답 골라",
+)
 
 # "3번", "3번 문제", "문 3", "3번문제" — 문항 지목.
 _QUESTION_REF = re.compile(r"(?:문\s*)?(\d{1,2})\s*번?\s*(?:문제)?")
@@ -142,7 +151,12 @@ class TutorSession:
 		if question is None:
 			return self._reply(self._not_found(number), grounded=True)
 		self._current = number
-		return self._reply(question.spoken(), grounded=True)
+		# 눈으로 보는 학생은 "지금 몇 번째 문제이고, 이제 뭘 할 수 있는지"를 페이지에서
+		# 한눈에 압니다. 귀로만 듣는 학생에게는 그 두 가지를 문장으로 얹어 줘야 대화가
+		# 이끌리는 느낌이 됩니다. 진행 표시와 다음 행동 안내는 원문을 센 결과·결정론적
+		# 안내이므로(개요와 같은 성질) 여전히 grounded=True — 모델을 거치지 않습니다.
+		lines = [self._position(number), question.spoken(), self._menu(question)]
+		return self._reply("\n".join(p for p in lines if p), grounded=True)
 
 	def read_choices(self) -> TutorReply:
 		question = self.current
@@ -223,8 +237,36 @@ class TutorSession:
 			Message(role="user", text=utterance),
 		]
 		resp = self.engine.provider.complete(messages, max_tokens=400)
-		text, missing = annotate_unsupported(resp.text.strip(), [source])
+		# 화면 해설과 같은 후처리(용어집 치환 + 길이 상한)를 자유 답변에도 적용합니다.
+		# 이걸 건너뛰면 "HP" 같은 용어가 도표 설명에서만 "체력"으로 읽히고 물어보기에서는
+		# 안 읽히는 식으로 두 경로가 어긋납니다.
+		finished = self.engine._finish(resp.text.strip())
+		text, missing = annotate_unsupported(finished, [source])
 		return self._reply(text, grounded=False, unsupported=missing)
+
+	# ---- 4) 코칭 (정답을 대신 고르지 않기) ----------------------------------------
+
+	def coach_answer(self) -> TutorReply:
+		"""정답을 물으면 답 대신 **어떻게 접근할지**로 되돌립니다.
+
+		답을 그냥 불러 주면 학습을 대신해 버리고, 듣는 사람은 검증할 수 없습니다
+		(BLV 사용자는 AI 오류를 약 50%만 잡아냅니다). 그래서 정답 요청은 모델로 넘기지
+		않고 — 넘겨도 `TUTOR_PROMPT`가 거절하지만, 결정론적으로 처리하면 더 빠르고 확실합니다 —
+		무엇을 해 볼 수 있는지 안내합니다. 안내이므로 grounded=True(모델 없음).
+		"""
+		question = self.current
+		lines = ["정답은 제가 대신 골라 드리지 않아요. 직접 고를 때 실력이 됩니다."]
+		if question is not None and question.choices:
+			lines.append(
+				"대신 선택지 하나하나가 무슨 뜻인지, 원문의 어디가 단서인지 짚어 드릴게요. "
+				"'선택지'라고 하면 다시 읽어 드리고, '이 문제가 뭘 묻는지' 물으면 원문만 근거로 설명합니다."
+			)
+		else:
+			lines.append(
+				"대신 이 문제가 무엇을 묻는지, 원문의 어디가 단서인지 짚어 드릴게요. "
+				"'이 문제가 뭘 묻는지'라고 물어보세요."
+			)
+		return self._reply("\n".join(lines), grounded=True)
 
 	# ---- 의도 라우팅 --------------------------------------------------------------
 
@@ -240,6 +282,9 @@ class TutorSession:
 		lowered = text.lower()
 		if _has(lowered, _OVERVIEW_WORDS):
 			return self.overview()
+		# "1번부터 같이 볼까요?"에 "시작"이라고 답하면 첫 문제로 들어간다.
+		if _has(lowered, _START_WORDS):
+			return self._first()
 		# 무엇을 다시 들려줄지가 먼저다. "선택지 다시 말해줘"는 반복이 아니라 선택지 낭독이고,
 		# 반복을 앞에 두면 직전 응답(지문)을 되풀이해 엉뚱한 걸 읽는다.
 		if _has(lowered, _CHOICE_WORDS):
@@ -252,6 +297,13 @@ class TutorSession:
 			return self.step(-1)
 		if _has(lowered, _REPEAT_WORDS):
 			return self.repeat()
+		# "4번이 답이야?"처럼 정답을 물으면 문항 지목은 반영하되 답 대신 코칭으로 되돌린다.
+		# 지목 뒤에 답을 묻는 말이 붙으므로 낭독(is_bare)이 아니라 여기서 먼저 가로챈다.
+		if _has(lowered, _ANSWER_WORDS):
+			ref, _ = _question_ref(text)
+			if ref is not None and self.document.question(ref):
+				self._current = ref
+			return self.coach_answer()
 		number, is_bare = _question_ref(text)
 		if number is not None and is_bare:
 			# "3번" / "3번 문제 읽어줘"처럼 지목만 하는 발화는 낭독. 뒤에 질문이 붙어
@@ -262,6 +314,37 @@ class TutorSession:
 		return self.ask(text)
 
 	# ---- 내부 ------------------------------------------------------------------
+
+	def _first(self) -> TutorReply:
+		numbers = [q.number for q in self.document.questions]
+		if not numbers:
+			return self.overview()
+		return self.read_question(numbers[0])
+
+	def _position(self, number: int) -> str:
+		"""'3문항 중 2번째입니다.' — 지금 어디쯤인지. 목록에 없으면 빈 문자열."""
+		numbers = [q.number for q in self.document.questions]
+		if number not in numbers:
+			return ""
+		return f"{len(numbers)}문항 중 {numbers.index(number) + 1}번째입니다."
+
+	def _menu(self, question: Question) -> str:
+		"""이 문항에서 **실제로 할 수 있는 것만** 골라 다음 행동을 안내합니다.
+
+		선택지가 없는 문항에 "선택지", 그림이 없는 문항에 "도표 설명"을 권하면 안내가
+		거짓이 됩니다 — 있는 것만 담습니다. 각 항목은 라우터가 알아듣는 말이라, 학생이
+		그대로 따라 말하면 바로 동작합니다.
+		"""
+		numbers = [q.number for q in self.document.questions]
+		options: List[str] = []
+		if question.choices:
+			options.append("선택지 다시 듣기")
+		if question.number in self.document.figure_numbers():
+			options.append("도표 설명 듣기")
+		options.append("이 문제가 뭘 묻는지 물어보기")
+		if question.number in numbers and numbers.index(question.number) < len(numbers) - 1:
+			options.append("다음 문제로 가기")
+		return ", ".join(options) + " — 무엇이든 말해 주세요."
 
 	def _not_found(self, number: int) -> str:
 		numbers = [q.number for q in self.document.questions]

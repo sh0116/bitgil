@@ -23,6 +23,14 @@ function setStatus(msg) {
 	$("status").textContent = msg;
 }
 
+// 지금 보고 있는 문항. 서버가 매 응답에 실어 주는 current를 반영합니다 — 대화 기록이
+// 길어져도 "내가 지금 몇 번에 있는지"는 한 곳에서 계속 보이고, 스크린리더로도 읽힙니다.
+function setWhere(current) {
+	const el = $("where");
+	if (typeof current === "number") el.textContent = "지금 " + current + "번을 보고 있습니다.";
+	else if (current === null) el.textContent = "아직 문항을 고르지 않았습니다.";
+}
+
 // ---- 낭독 -------------------------------------------------------------------
 
 function utter(text) {
@@ -128,6 +136,7 @@ async function say(text) {
 		}
 		addReply(data);
 		announce(data);
+		if ("current" in data) setWhere(data.current);
 		setStatus(
 			data.grounded
 				? "시험지 원문을 읽었습니다. 다음에 무엇을 들을까요?"
@@ -186,7 +195,8 @@ async function openPdf(file) {
 		setEnabled(true);
 		addReply(data);
 		announce(data);
-		setStatus("시험지를 열었습니다. 어디부터 읽을까요?");
+		setWhere(null);   // 개요만 들은 상태 — 아직 문항을 고르지 않았습니다.
+		setStatus("시험지를 열었습니다. 어디부터 읽을까요? '시작'이라고 하면 1번부터 함께 봅니다.");
 		$("ask").focus();
 	} catch (e) {
 		const msg = "업로드 실패: " + e.message;
@@ -230,6 +240,7 @@ async function closeDoc() {
 	setEnabled(false);
 	renderJumps([]);
 	$("doc").textContent = "";
+	$("where").textContent = "";
 	stopSpeech();
 	setStatus("시험지를 닫았습니다. 업로드본은 서버에서 삭제했습니다.");
 	$("file").value = "";

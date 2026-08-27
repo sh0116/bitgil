@@ -36,21 +36,27 @@
 			<form id="askForm" class="ask">
 				<label for="ask">말하거나 입력하기</label>
 				<input id="ask" type="text" autocomplete="off" disabled
-				       placeholder="예: 2번 읽어줘 / 도표 설명해줘 / 이 문제 뭘 묻는 거야">
+				       placeholder="예: 시작 / 2번 읽어줘 / 도표 설명해줘 / 이 문제 뭘 묻는 거야">
 				<button id="send" type="submit" disabled>보내기</button>
 				<button id="mic" type="button" disabled aria-pressed="false">🎙 음성 입력</button>
 			</form>
 
 			<div class="quick" role="group" aria-label="자주 쓰는 말">
+				<button type="button" class="q" data-say="시작" disabled>1번부터 같이</button>
 				<button type="button" class="q" data-say="개요" disabled>개요 다시</button>
 				<button type="button" class="q" data-say="이전 문제" disabled>이전 문제</button>
 				<button type="button" class="q" data-say="다음 문제" disabled>다음 문제</button>
 				<button type="button" class="q" data-say="선택지" disabled>선택지</button>
 				<button type="button" class="q" data-say="도표 설명해줘" disabled>도표 설명</button>
+				<button type="button" class="q" data-say="이 문제 뭘 묻는 거야" disabled>뭘 묻는지</button>
 				<button type="button" class="q" data-say="다시" disabled>다시 듣기</button>
 			</div>
 
 			<div id="jump" class="chips" role="group" aria-label="문항 바로 가기"></div>
+
+			<!-- 지금 몇 번을 보고 있는지 계속 보여 줍니다 — 대화가 길어져도 자리를 잃지 않게.
+			     서버가 매 응답에 실어 주는 current(문항 번호)를 그대로 반영합니다. -->
+			<p id="where" class="meta" aria-live="polite"></p>
 
 			<div class="controls">
 				<label class="check">
@@ -73,11 +79,13 @@
 		<details>
 			<summary>말할 수 있는 것 · 단축키</summary>
 			<ul>
+				<li><b>시작</b> — 1번부터 함께 봅니다. 문항을 읽어 줄 때마다 <b>지금 몇 번째인지</b>와 <b>다음에 할 수 있는 것</b>을 함께 안내합니다.</li>
 				<li><b>3번</b> — 그 문항의 지문과 선택지를 원문 그대로 (모델 안 씀)</li>
 				<li><b>선택지</b> — 지금 문항의 선택지만 다시</li>
 				<li><b>다음 / 이전</b> — 문항 이동, <b>다시</b> — 직전 응답 반복</li>
 				<li><b>도표 설명해줘 / 2쪽 도표</b> — 그림을 비전 모델로 설명 + 원문 미확인 숫자 고지</li>
-				<li>그 밖의 말 — 그 문항 <b>원문만을 근거로</b> 답합니다(정답은 대신 판정하지 않습니다)</li>
+				<li><b>이 문제 뭘 묻는 거야</b> — 그 문항 <b>원문만을 근거로</b> 설명합니다</li>
+				<li><b>답이 뭐야</b> — 정답은 대신 골라 주지 않고, 어떻게 접근할지로 안내합니다(직접 골라야 실력이 됩니다)</li>
 				<li>단축키: <b>Esc</b> 낭독 중지 · <b>Alt+M</b> 음성 입력 · <b>Alt+N/P</b> 다음/이전 · <b>Alt+R</b> 다시</li>
 			</ul>
 		</details>
