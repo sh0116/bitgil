@@ -192,6 +192,29 @@ class Bitgil:
 			        "visual_distance": round(result.visual_distance, 3),
 			        "text": text, "reason": "request" if force else (result.reason or "visual")}
 
+	def answer(self, frame: bytes, question: str) -> dict:
+		"""화면에 대한 사용자의 **질문**에 답합니다(대화 경로).
+
+		자동 관찰 루프(`narrate`)와 달리 변화 게이트를 거치지 않습니다 — 사용자가 직접
+		물었으니 화면이 그대로여도 답합니다. 질문을 그대로 모델에 실어(F2) "이 화면이
+		전체적으로 무엇인지" 같은 방향 잡기부터 "여기서 뭘 할 수 있어?" 같은 세부 질문까지
+		한 경로로 처리합니다.
+
+		화면 해설은 **언제나 모델의 말**입니다(시험지 원문 같은 근거 텍스트가 없습니다).
+		그래서 `grounded`는 항상 False로 실어, 클라이언트가 "모델" 표시를 붙일 수 있게 합니다 —
+		화면을 못 보는 사용자에게 무엇이 추측인지 알리는 것은 기능이 아니라 안전장치입니다.
+		"""
+		q = (question or "").strip()
+		if not q:
+			raise _BadRequest("무엇이 궁금한지 한 문장으로 말해 주세요. 예: 이 화면이 뭐야?")
+		with self._lock:
+			# baseline을 갱신해 둡니다 — 답한 직후 자동 루프가 같은 화면을 또 "큰 변화"로
+			# 보고 끼어드는 것을 막습니다.
+			self.detector.evaluate(frame)
+			text = self.engine.narrate(frame, question=q).text
+			self.goal.note(text)  # 대화 맥락을 triage 관련성 판단에 넘깁니다
+		return {"text": text, "reason": "answer", "grounded": False}
+
 	def narrate_stream(self, frame: bytes, force: bool = False):
 		"""Yield narration sentence-by-sentence for low perceived latency (F1).
 
@@ -505,6 +528,24 @@ class Handler(BaseHTTPRequestHandler):
 
 		if path == "/narrate/stream":
 			self._stream_narrate(body, force=_force(query))
+			return
+
+		if path == "/ask":
+			# 화면 공유 모드의 대화 경로. 프레임은 본문(JPEG), 질문은 쿼리 q로 받습니다
+			# (/tutor/open이 파일명을 쿼리로 받는 것과 같은 이유 — 헤더는 latin-1).
+			if not body:
+				self._send_json(
+					{"error": "empty body", "text": "먼저 화면 공유를 시작해 주세요."},
+					status=400,
+				)
+				return
+			question = urllib.parse.parse_qs(query).get("q", [""])[0]
+			try:
+				self._send_json(self.bitgil.answer(body, question))
+			except _BadRequest as e:
+				self._send_json({"error": str(e), "text": str(e)}, status=400)
+			except Exception as e:  # 프로바이더 실패도 조치 가능한 한 문장으로 (음성으로 읽힘)
+				self._send_json({"text": f"오류: {e}", "reason": "error", "grounded": False})
 			return
 
 		if path == "/triage":

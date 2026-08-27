@@ -168,6 +168,43 @@ def test_narrate_stream_yields_sentences(base_url):
 	assert "데모" in text
 
 
+def test_ask_answers_about_the_current_frame(base_url):
+	# 화면 공유 대화 경로: 프레임은 본문, 질문은 쿼리 q. 변화 게이트를 거치지 않고 답한다.
+	status, body = _post(base_url + "/ask?q=" + urllib.parse.quote("이 화면 뭐야?"),
+	                     _frame("a"), headers={"Content-Type": "image/jpeg"})
+	d = json.loads(body)
+	assert status == 200 and d["text"]
+	assert d["reason"] == "answer"
+	# 화면 해설은 언제나 모델의 말 — 근거 텍스트가 없으므로 grounded는 항상 False다.
+	assert d["grounded"] is False
+
+
+def test_ask_does_not_gate_on_an_unchanged_frame(base_url):
+	# /narrate는 같은 프레임을 다시 보내면 조용하지만(no-change), /ask는 사용자가 직접
+	# 물었으므로 화면이 그대로여도 답한다.
+	_post(base_url + "/ask?q=" + urllib.parse.quote("이 화면 뭐야?"), _frame("a"),
+	      headers={"Content-Type": "image/jpeg"})
+	status, body = _post(base_url + "/ask?q=" + urllib.parse.quote("다시 설명해줘"),
+	                     _frame("a"), headers={"Content-Type": "image/jpeg"})
+	d = json.loads(body)
+	assert status == 200 and d["text"]
+
+
+def test_ask_empty_body_is_400_with_actionable_korean(base_url):
+	status, body = _post(base_url + "/ask?q=" + urllib.parse.quote("뭐야"), b"",
+	                     headers={"Content-Type": "image/jpeg"})
+	assert status == 400
+	# 상태코드만 오면 낭독으로는 아무 정보가 아니다 — 무엇을 하면 되는지가 문장에 있어야 한다.
+	assert "화면 공유" in json.loads(body)["text"]
+
+
+def test_ask_empty_question_is_400_with_actionable_korean(base_url):
+	status, body = _post(base_url + "/ask", _frame("a"),
+	                     headers={"Content-Type": "image/jpeg"})
+	assert status == 400
+	assert "궁금한" in json.loads(body)["text"]
+
+
 def test_triage_scam_interrupts_with_confirmation(base_url):
 	status, d = _json_post(
 		base_url + "/triage",
@@ -387,6 +424,21 @@ def test_every_asset_the_tutor_page_references_is_served(base_url):
 	refs = re.findall(r'(?:src|href)="([^"#:]+)"', html)
 	assert "tutor.js" in refs and "styles.css" in refs
 	for ref in refs:
+		status, body = _get(base_url + "/" + ref.lstrip("/"))
+		assert status == 200, f"{ref} → {status}"
+		assert body, f"{ref} 이(가) 비어 있다"
+
+
+def test_index_page_references_are_all_served(base_url):
+	# 화면 공유 페이지도 스크립트·스타일 경로가 하나만 어긋나면 조용히 빈 화면이 된다.
+	status, page = _get(base_url + "/")
+	assert status == 200
+	html = page.decode("utf-8")
+	refs = re.findall(r'(?:src|href)="([^"#:]+)"', html)
+	assert "app.js" in refs and "styles.css" in refs
+	for ref in refs:
+		if ref.endswith(".html"):
+			continue   # 다른 페이지로의 링크(tutor.html)는 자산이 아니다
 		status, body = _get(base_url + "/" + ref.lstrip("/"))
 		assert status == 200, f"{ref} → {status}"
 		assert body, f"{ref} 이(가) 비어 있다"
