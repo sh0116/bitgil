@@ -115,6 +115,28 @@ def test_repeat_returns_the_previous_reply():
 	assert session.repeat().text == first
 
 
+def test_repeat_keeps_the_reply_marked_as_the_model_speaking():
+	# "다시"가 모델의 답을 원문으로 바꿔 읽으면, 이 모드가 약속한 단 하나의 구분이 깨진다 —
+	# 듣는 사람은 시험지에 인쇄된 문장과 모델이 한 말을 목소리로 구별할 수 없다.
+	session, _, _ = _session(reply="이 문제는 그래프 해석을 묻습니다.")
+	session.read_question(1)
+	answered = session.ask("이 문제는 뭘 묻는 거야")
+	assert answered.grounded is False
+	again = session.repeat()
+	assert again.text == answered.text
+	assert again.grounded is False
+	assert again.unsupported == answered.unsupported
+
+
+def test_repeat_does_not_record_the_reply_twice():
+	# 같은 문장을 두 번 들은 것이 복습 노트에서 두 번 일어난 일은 아니다.
+	review = ReviewLog(clock=lambda: "10:00")
+	session, _, _ = _session(review_log=review)
+	session.read_question(1)
+	session.repeat()
+	assert review.to_markdown().count("1번.") == 1
+
+
 def test_repeat_before_anything_gives_the_overview():
 	session, _, _ = _session()
 	assert "문항 2개" in session.repeat().text

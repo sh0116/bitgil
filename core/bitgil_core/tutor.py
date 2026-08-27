@@ -79,7 +79,7 @@ class TutorSession:
 		self.review_log = review_log
 		self.render_dpi = render_dpi
 		self._current: Optional[int] = None
-		self._last: str = ""
+		self._last: Optional[TutorReply] = None
 
 	# ---- 상태 ------------------------------------------------------------------
 
@@ -143,9 +143,17 @@ class TutorSession:
 		return self.read_question(numbers[target])
 
 	def repeat(self) -> TutorReply:
-		if not self._last:
+		"""직전 응답을 그대로 — **출처 표시까지 그대로.**
+
+		되풀이한 문장이 원문 낭독이었는지 모델의 말이었는지는 반복에서도 유지되어야 합니다.
+		여기서 무조건 `grounded=True`를 돌려주면 모델이 한 말이 "원문"으로 다시 읽히는데,
+		그 구분이 바로 이 모드가 사용자에게 약속한 것입니다(`scripts/bitgil_tutor.py`의 출처
+		표시, 복습 노트의 기계생성 고지와 같은 이유). 복습 노트에는 다시 기록하지 않습니다 —
+		같은 문장을 두 번 들은 것이 학습 기록상 두 번 일어난 일은 아닙니다.
+		"""
+		if self._last is None:
 			return self.overview()
-		return TutorReply(text=self._last, grounded=True)
+		return self._last
 
 	# ---- 2) 도표 설명 (비전 + 수치 대조) ------------------------------------------
 
@@ -235,10 +243,11 @@ class TutorSession:
 	def _reply(
 		self, text: str, grounded: bool, unsupported: Optional[List[str]] = None
 	) -> TutorReply:
-		self._last = text
+		reply = TutorReply(text=text, grounded=grounded, unsupported=unsupported or [])
+		self._last = reply
 		if self.review_log is not None:
 			self.review_log.record(text)
-		return TutorReply(text=text, grounded=grounded, unsupported=unsupported or [])
+		return reply
 
 
 def _has(lowered: str, words: Tuple[str, ...]) -> bool:
