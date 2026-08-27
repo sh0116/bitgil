@@ -38,7 +38,7 @@ class FakeDocument(ExamDocument):
 		return b"\x89PNG-fake"
 
 
-def _session(reply="막대 네 개가 있습니다.", review_log=None):
+def _session(reply="막대 네 개가 있습니다.", review_log=None, title=""):
 	doc = FakeDocument(
 		path=type("P", (), {"name": "모의고사.pdf"})(),
 		pages=["1. 다음 표는 월별 판매량이다. 1월 120, 4월 260"],
@@ -46,6 +46,7 @@ def _session(reply="막대 네 개가 있습니다.", review_log=None):
 			Question(number=1, stem="다음 표의 최고점은?", choices=["1월", "4월"], page=0),
 			Question(number=2, stem="증가 추세인가?", choices=[], page=0),
 		],
+		title=title,
 	)
 	provider = FakeProvider(reply)
 	engine = NarrationEngine(provider, Profile(name="t", system_prompt="s"))
@@ -146,6 +147,52 @@ def test_overview_counts_questions_and_pages():
 	session, _, _ = _session()
 	text = session.overview().text
 	assert "문항 2개" in text and "1번부터 2번까지" in text
+
+
+# --- 시험지를 펼쳤을 때: 무슨 시험지인지 말하고 기다린다 ----------------------------
+
+def test_overview_reads_the_printed_header_not_the_file_name():
+	# 파일명은 귀로 듣는 학생에게 정보가 아니다 — 시험지에 인쇄된 머리글이 정보다.
+	session, _, _ = _session(title="2026학년도 모의평가\n사회탐구 영역")
+	text = session.overview().text
+	assert text.startswith("2026학년도 모의평가\n사회탐구 영역")
+	assert "모의고사.pdf" not in text
+
+
+def test_overview_never_calls_the_model():
+	# 시험지를 펼치는 것만으로 왕복 비용이나 환각 위험이 생기면 안 된다.
+	session, provider, _ = _session(title="2026학년도 모의평가")
+	reply = session.overview()
+	assert provider.calls == 0
+	assert reply.grounded is True
+
+
+def test_overview_says_which_questions_have_a_figure():
+	session, _, doc = _session()
+	doc.questions[1].figure_text = "1월 120 4월 260"
+	assert "도표나 그림이 딸린 문항은 2번입니다" in session.overview().text
+
+
+def test_overview_says_which_questions_have_no_choices_it_could_read():
+	session, _, _ = _session()
+	assert "선택지를 읽지 못한 문항은 2번입니다" in session.overview().text
+
+
+def test_overview_ends_by_handing_the_turn_back_to_the_student():
+	# 설명하고 **기다린다** — 무엇을 먼저 들을지는 학생이 정한다.
+	assert _session()[0].overview().text.rstrip().endswith("문항 번호만 말해도 됩니다.")
+
+
+def test_overview_caps_a_long_figure_list_and_says_how_many():
+	# 스무 개를 줄줄이 읽는 것은 안내가 아니라 소음이다.
+	session, _, doc = _session()
+	doc.questions = [
+		Question(number=n, stem=f"{n}번 지문", choices=["가"], page=0, figure_text="1 2 3 4")
+		for n in range(1, 21)
+	]
+	text = session.overview().text
+	assert "등 모두 20개입니다" in text
+	assert "9번" not in text          # 상한을 넘긴 번호는 읽지 않는다
 
 
 def test_overview_without_questions_offers_the_page_route():

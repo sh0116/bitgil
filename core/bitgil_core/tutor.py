@@ -88,7 +88,21 @@ class TutorSession:
 		return self.document.question(self._current) if self._current is not None else None
 
 	def overview(self) -> TutorReply:
-		"""문서에 문항이 몇 개 있고 어디부터 어디까지인지 — 첫 방향 감각."""
+		"""**무슨 시험지인지 먼저 말하고 기다립니다** — 시험지를 펼쳤을 때의 첫 응답.
+
+		시험지가 들어오자마자 모델에 넘겨 버리면, 학생이 받는 것은 "AI가 이 시험지에 대해
+		한 말" 한 덩어리입니다. 눈으로 보는 학생은 시험지를 펼치면 시험명·과목·문항 수·
+		어디에 그림이 있는지를 **한눈에** 먼저 훑고 나서 어디부터 풀지 스스로 정합니다.
+		그 첫 훑어보기를 대신하는 것이 이 응답이고, 그래서 여기에는 다음 세 가지 성질이
+		있어야 합니다.
+
+		- **LLM을 거치지 않습니다.** 머리글은 원문, 나머지는 문항 목록을 센 결과입니다.
+		  시험지를 펼치는 것만으로 왕복 비용이나 환각 위험이 생기지 않습니다.
+		- **파일명을 읽지 않습니다.** "모의고사_최종_v3.pdf"는 귀로 듣는 사람에게 정보가
+		  아닙니다. 대신 시험지에 인쇄된 머리글(`document.title`)을 읽습니다.
+		- **먼저 움직이지 않습니다.** 안내를 끝내면 질문으로 마치고 학생의 말을 기다립니다.
+		  무엇을 먼저 들을지는 학생이 정합니다.
+		"""
 		numbers = [q.number for q in self.document.questions]
 		if not numbers:
 			return self._reply(
@@ -96,12 +110,30 @@ class TutorSession:
 				"페이지를 직접 읽어 드릴까요? '1쪽 도표 설명해줘'처럼 말해 주세요.",
 				grounded=True,
 			)
-		return self._reply(
-			f"{self.document.path.name}, {len(self.document.pages)}쪽에 문항 "
-			f"{len(numbers)}개가 있습니다. {numbers[0]}번부터 {numbers[-1]}번까지입니다. "
-			"'3번 읽어줘'처럼 말해 주세요.",
-			grounded=True,
+		lines: List[str] = []
+		if self.document.title:
+			lines.append(self.document.title)
+		lines.append(
+			f"모두 {len(self.document.pages)}쪽이고, 문항 {len(numbers)}개가 있습니다. "
+			f"{numbers[0]}번부터 {numbers[-1]}번까지입니다."
 		)
+		figures = self.document.figure_numbers()
+		if figures:
+			lines.append(
+				f"도표나 그림이 딸린 문항은 {_listed(figures)}. "
+				"이 문항은 그림을 따로 설명해 드립니다."
+			)
+		choiceless = self.document.choiceless_numbers()
+		if choiceless:
+			lines.append(
+				f"선택지를 읽지 못한 문항은 {_listed(choiceless)}"
+				"(서술형이거나 표기가 달라 못 읽은 것일 수 있습니다)."
+			)
+		lines.append(
+			"여기까지는 시험지 원문에서 확인한 것입니다. "
+			"어디부터 읽을까요? 문항 번호만 말해도 됩니다."
+		)
+		return self._reply("\n".join(lines), grounded=True)
 
 	# ---- 1) 원문 낭독 (LLM 없음) -------------------------------------------------
 
@@ -248,6 +280,19 @@ class TutorSession:
 		if self.review_log is not None:
 			self.review_log.record(text)
 		return reply
+
+
+# 한 번에 읽어 줄 번호 개수 상한. 스무 개를 줄줄이 읽는 것은 안내가 아니라 소음입니다 —
+# 개수만 알려주고 나머지는 학생이 지목할 때 읽습니다.
+_LISTED_MAX = 8
+
+
+def _listed(numbers: List[int]) -> str:
+	"""번호 목록을 낭독용 서술어로 ("2번, 3번입니다" / "… 등 모두 20개입니다"). 마침표는 부르는 쪽에서."""
+	shown = ", ".join(f"{n}번" for n in numbers[:_LISTED_MAX])
+	if len(numbers) <= _LISTED_MAX:
+		return f"{shown}입니다"
+	return f"{shown} 등 모두 {len(numbers)}개입니다"
 
 
 def _has(lowered: str, words: Tuple[str, ...]) -> bool:

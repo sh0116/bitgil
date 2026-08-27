@@ -107,10 +107,11 @@ def main() -> None:
 	engine = NarrationEngine(provider, profile, review_log=review)
 	session = TutorSession(document, engine, review_log=review, render_dpi=args.dpi)
 
-	numbers = [q.number for q in document.questions]
+	# 쪽수·문항 수는 개요가 낭독으로 말해 줍니다 — 여기서 되풀이하면 같은 정보를 두 번 듣습니다.
+	# 이 줄에는 낭독 대상이 아닌 것(어떤 프로바이더/모델을 쓰는지)만 남깁니다.
 	print(
-		f"[{os.path.basename(args.pdf)} {len(document.pages)}쪽 문항 {len(numbers)}개 | "
-		f"profile={profile.name} provider={provider.name} model={model}]"
+		f"[{os.path.basename(args.pdf)} | profile={profile.name} "
+		f"provider={provider.name} model={model}]"
 	)
 	_print(session.overview())
 

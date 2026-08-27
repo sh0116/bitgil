@@ -66,11 +66,24 @@ class Question:
 
 @dataclass
 class ExamDocument:
-	"""읽어들인 시험지 한 부."""
+	"""읽어들인 시험지 한 부.
+
+	`title`은 첫 문항 앞에 인쇄된 머리글(시험명·과목)입니다 — 파일명이 아니라 **원문**이라서,
+	"무슨 시험지를 펼쳤는지"를 근거 있게 말할 수 있는 유일한 재료입니다.
+	"""
 
 	path: Path
 	pages: List[str]
 	questions: List[Question]
+	title: str = ""
+
+	def figure_numbers(self) -> List[int]:
+		"""도표·그림 글자가 딸린 문항 번호. 비전 왕복이 필요한 문항이 어디인지가 그대로 드러납니다."""
+		return [q.number for q in self.questions if q.figure_text]
+
+	def choiceless_numbers(self) -> List[int]:
+		"""선택지를 못 읽은 문항 번호(서술형이거나 표기가 달라 놓친 경우)."""
+		return [q.number for q in self.questions if not q.choices]
 
 	def question(self, number: int) -> Optional[Question]:
 		for q in self.questions:
@@ -113,7 +126,42 @@ def load_pdf(path: str | Path) -> ExamDocument:
 	questions: List[Question] = []
 	for index, text in enumerate(pages):
 		questions.extend(split_questions(text, page=index))
-	return ExamDocument(path=path, pages=pages, questions=questions)
+	first = questions[0].number if questions and questions[0].page == 0 else None
+	return ExamDocument(
+		path=path,
+		pages=pages,
+		questions=questions,
+		title=header_of(pages[0] if pages else "", first),
+	)
+
+
+# 머리글로 받아들일 줄 수와 한 줄 길이 상한. 시험지 머리글은 두 줄(시험명 / 과목·회차)이
+# 관례이고, 넘겨받은 줄을 다 읽으면 학생이 첫 문항에 닿기까지 지시문 전체를 들어야 합니다.
+_TITLE_MAX_LINES = 2
+_TITLE_MAX_CHARS = 70
+
+
+def header_of(text: str, first_number: Optional[int] = None) -> str:
+	"""첫 쪽에서 **첫 문항 앞에 인쇄된 머리글**을 뽑습니다 — 시험명·과목.
+
+	파일명("모의고사_최종_v3.pdf")은 귀로 듣는 학생에게 정보가 아니고, 그 시험지가 무슨
+	시험지인지도 말해 주지 않습니다. 머리글은 시험지에 인쇄된 원문이므로 LLM 없이 그대로
+	읽을 수 있습니다. 자를 지점은 `split_questions`가 실제로 받아들인 첫 문항 번호로
+	정합니다 — 날짜("2026. 8.")처럼 번호처럼 보이는 줄에서 잘리면 머리글이 사라집니다.
+	쪽번호만 있는 줄은 건너뜁니다(낭독하면 소음입니다).
+	"""
+	lines: List[str] = []
+	for raw in text.splitlines():
+		match = _QUESTION_START.match(raw)
+		if match and (first_number is None or int(match.group(1)) == first_number):
+			break
+		line = _tidy(raw)
+		if not line or line.isdigit():
+			continue
+		lines.append(line[:_TITLE_MAX_CHARS])
+		if len(lines) == _TITLE_MAX_LINES:
+			break
+	return "\n".join(lines)
 
 
 def split_questions(text: str, page: int = 0) -> List[Question]:
