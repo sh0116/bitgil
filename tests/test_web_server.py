@@ -13,6 +13,7 @@ import io
 import json
 import os
 import re
+import shutil
 import threading
 import urllib.error
 import urllib.parse
@@ -275,14 +276,38 @@ def test_tutor_review_export_carries_the_machine_generated_notice(base_url):
 	assert "Read the chart below." in text
 
 
+@pytest.mark.skipif(shutil.which("pdftoppm") is None, reason="poppler-utils 미설치")
 def test_tutor_review_records_a_figure_description_once(base_url):
 	# 엔진과 세션이 같은 노트에 각각 적으면 도표 설명이 두 번 남는다 — 같은 문장을 두 번
 	# 들은 것이 학습 기록상 두 번 일어난 일은 아니다(`TutorSession.repeat`과 같은 이유).
+	#
+	# 이 계약은 도표 설명이 **성공했을 때**의 것이라 실제 렌더링이 필요하다. poppler가 없는
+	# 환경(CI 러너)에서는 아래 test_…_says_how_to_install이 그 경로를 대신 지킨다.
 	_open_exam(base_url)
 	status, d = _json_post(base_url + "/tutor/say", {"text": "도표 설명해줘"})
 	assert status == 200 and d["grounded"] is False
 	_, body = _get(base_url + "/tutor/review")
 	assert body.decode("utf-8").count(d["text"]) == 1
+
+
+def test_tutor_figure_without_poppler_says_what_to_install(base_url, monkeypatch):
+	"""poppler가 없으면 무엇을 설치하면 되는지 **말한다** — 그리고 원문 낭독은 계속 된다.
+
+	이 문장은 브라우저에서 그대로 음성으로 읽히므로, 상태코드나 스택트레이스가 아니라 조치
+	가능한 한국어여야 한다(낭독 대상이 사용자다). `shutil.which`가 호출 시점에 PATH를 보므로
+	PATH를 비우면 서버 스레드에서도 미설치 환경이 재현된다.
+	"""
+	_open_exam(base_url)
+	monkeypatch.setenv("PATH", "")
+	status, d = _json_post(base_url + "/tutor/say", {"text": "도표 설명해줘"})
+	assert status == 200          # 400으로 끝내면 대화가 끊긴다 — 실패도 응답이다
+	assert d["grounded"] is False
+	assert "pdftoppm" in d["text"] and "설치" in d["text"]
+
+	# 그림 하나 못 그린 것이 시험지 낭독을 막아서는 안 된다.
+	status, d = _json_post(base_url + "/tutor/say", {"text": "1번 읽어줘"})
+	assert status == 200 and d["grounded"] is True
+	assert "Read the chart below." in d["text"]
 
 
 def test_tutor_review_without_a_document_is_400(base_url):
