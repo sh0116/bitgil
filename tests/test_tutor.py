@@ -321,6 +321,90 @@ def test_respond_overview_words():
 	assert "문항 2개" in session.respond("몇 문제 있어?").text
 
 
+# --- 이끌어 주는 과외 흐름: 진행 표시 · 다음 행동 안내 · 코칭 -----------------------
+
+def test_reading_a_question_says_where_we_are():
+	# 귀로만 듣는 학생에게 "지금 몇 번째"는 페이지를 못 보면 알 수 없는 정보다.
+	session, provider, _ = _session()
+	reply = session.read_question(1)
+	assert "2문항 중 1번째입니다." in reply.text
+	assert provider.calls == 0          # 진행 표시는 세는 것 — 모델을 거치지 않는다
+	assert reply.grounded is True
+
+
+def test_reading_a_question_offers_only_the_actions_that_apply():
+	# 1번은 선택지가 있고 뒤에 문항이 더 있다 → 선택지·다음이 안내된다. 그림은 없다.
+	session, _, _ = _session()
+	menu = session.read_question(1).text
+	assert "선택지 다시 듣기" in menu
+	assert "다음 문제로 가기" in menu
+	assert "도표 설명" not in menu       # 1번엔 그림이 없다 — 거짓 안내를 하지 않는다
+
+
+def test_last_question_does_not_offer_a_next():
+	session, _, _ = _session()
+	menu = session.read_question(2).text        # 2번이 마지막
+	assert "다음 문제로 가기" not in menu
+	assert "선택지 다시 듣기" not in menu       # 2번은 서술형(선택지 없음)
+
+
+def test_menu_offers_the_figure_action_only_when_there_is_a_figure():
+	session, _, doc = _session()
+	doc.questions[0].figure_text = "1월 120 4월 260"
+	assert "도표 설명 듣기" in session.read_question(1).text
+
+
+def test_start_word_enters_the_first_question():
+	# 개요를 듣고 "시작"이라고 하면 첫 문제로 들어간다("1번부터 같이 볼까요?"에 대한 승낙).
+	session, provider, _ = _session()
+	reply = session.respond("시작")
+	assert "1번." in reply.text
+	assert provider.calls == 0
+
+
+def test_asking_for_the_answer_coaches_instead_of_answering():
+	# 정답을 대신 부르지 않는다 — 모델로 넘기지도 않고 접근법으로 되돌린다.
+	session, provider, _ = _session()
+	session.read_question(1)
+	reply = session.respond("정답이 뭐야?")
+	assert provider.calls == 0
+	assert reply.grounded is True
+	assert "직접 고를 때" in reply.text
+	assert "선택지" in reply.text          # 1번엔 선택지가 있으니 그 길로 안내
+
+
+def test_answer_seeking_with_a_number_sets_that_question_first():
+	# "2번이 답이야?"는 2번을 지목한 뒤 코칭 — 지목은 반영되어야 한다.
+	session, _, _ = _session()
+	session.read_question(1)
+	reply = session.respond("2번이 답이야?")
+	assert session.current.number == 2
+	# 2번은 서술형이라 선택지 대신 '무엇을 묻는지'로 안내한다.
+	assert "이 문제가 뭘 묻는지" in reply.text
+
+
+def test_a_plain_what_does_it_ask_still_reaches_the_model():
+	# 코칭이 정상적인 설명 요청까지 가로채면 안 된다 — "답해줘"는 '답' 어구가 아니다.
+	session, provider, _ = _session(reply="이 문제는 최고점을 묻습니다.")
+	session.read_question(1)
+	session.respond("이 문제 뭘 묻는지 답해줘")
+	assert provider.calls == 1
+
+
+def test_free_form_answers_go_through_the_glossary():
+	# 물어보기 경로도 화면 해설과 같은 후처리를 거친다 — 용어집이 양쪽에서 똑같이 적용된다.
+	doc = FakeDocument(
+		path=type("P", (), {"name": "x.pdf"})(),
+		pages=["1. 캐릭터 상태를 보라."],
+		questions=[Question(number=1, stem="HP는?", choices=["높다"], page=0)],
+	)
+	provider = FakeProvider(reply="HP가 낮습니다.")
+	profile = Profile(name="t", system_prompt="s", glossary={"HP": "체력"})
+	session = TutorSession(doc, NarrationEngine(provider, profile))
+	session.read_question(1)
+	assert "체력" in session.ask("이 문제 뭘 묻는 거야?").text
+
+
 # --- 복습 노트 ------------------------------------------------------------------
 
 def test_replies_are_recorded_to_the_review_log():

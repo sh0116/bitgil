@@ -12,13 +12,17 @@ import importlib.util
 import io
 import json
 import os
+import re
+import shutil
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import ThreadingHTTPServer
 
 import pytest
 from PIL import Image, ImageDraw
+from pdf_fixture import pdf_with_text, scanned_pdf
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _SERVER_PATH = os.path.join(_REPO, "web", "server.py")
@@ -114,6 +118,42 @@ def test_narrate_change_detection_gates_llm(base_url):
 	assert changed["changed"] is True and changed["text"]
 
 
+def test_narrate_force_speaks_even_without_a_change(base_url):
+	# 트리거 ①: 사용자가 직접 "지금 화면 설명"을 부르면, 화면이 그대로여도 설명한다.
+	_post(base_url + "/narrate", _frame("a"))              # baseline 설정
+	same = json.loads(_post(base_url + "/narrate", _frame("a"))[1])
+	assert same["changed"] is False                        # 그대로면 조용하다
+	forced = json.loads(_post(base_url + "/narrate?force=1", _frame("a"))[1])
+	assert forced["changed"] is True and forced["text"]
+	assert forced["reason"] == "request"
+
+
+def test_high_threshold_silences_auto_but_force_still_speaks(base_url):
+	# 트리거 ②: 자동 낭독은 큰 변화만. 문턱을 높이면 a→b(≈0.48) 변화도 자동으로는 조용하고,
+	# 그래도 요청하면 말한다 — 도우미는 사용자가 원할 때 말한다.
+	_json_post(base_url + "/configure", {"salient_threshold": 0.9})
+	first = json.loads(_post(base_url + "/narrate", _frame("a"))[1])
+	assert first["changed"] is True                        # 첫 프레임은 거리 1.0 → 큰 변화
+	quiet = json.loads(_post(base_url + "/narrate", _frame("b"))[1])
+	assert quiet["changed"] is False and quiet["reason"] == "minor"
+	forced = json.loads(_post(base_url + "/narrate?force=1", _frame("b"))[1])
+	assert forced["changed"] is True and forced["text"]
+
+
+def test_config_and_configure_carry_the_salient_threshold(base_url):
+	cfg = json.loads(_get(base_url + "/config")[1])
+	assert "salient_threshold" in cfg
+	status, d = _json_post(base_url + "/configure", {"salient_threshold": 0.5})
+	assert status == 200 and abs(d["salient_threshold"] - 0.5) < 1e-9
+
+
+def test_configure_non_numeric_salient_threshold_is_400(base_url):
+	status, body = _post(
+		base_url + "/configure", json.dumps({"salient_threshold": "abc"}).encode()
+	)
+	assert status == 400
+
+
 def test_narrate_empty_body_is_400(base_url):
 	status, body = _post(base_url + "/narrate", b"")
 	assert status == 400
@@ -192,3 +232,168 @@ def test_malformed_content_length_is_400(base_url):
 def test_unknown_post_route_is_404(base_url):
 	status, _ = _post(base_url + "/nope", b"{}")
 	assert status == 404
+
+
+# --- 시험지 대화 모드 (/tutor/*) -------------------------------------------------
+#
+# 브라우저에서 PDF를 올려 대화하는 경로(docs/qa.md S9). 여기서 지키는 계약은 두 가지다:
+# 원문 낭독은 모델을 거치지 않는다는 것(`grounded`)과, 거절·오류가 조치 가능한 한국어
+# 문장으로 온다는 것(그 문장이 사용자에게 **음성으로 읽힌다**).
+
+_EXAM = ["2026 mock exam", "1. Read the chart below.", "2. What is shown?"]
+
+
+def _open_exam(base_url, data=None, name="exam.pdf"):
+	body = pdf_with_text(_EXAM) if data is None else data
+	url = base_url + "/tutor/open?name=" + urllib.parse.quote(name)
+	status, raw = _post(url, body, headers={"Content-Type": "application/pdf"})
+	return status, json.loads(raw)
+
+
+def test_tutor_open_answers_with_the_overview_and_the_question_list(base_url):
+	status, d = _open_exam(base_url)
+	assert status == 200
+	assert d["grounded"] is True          # 개요는 원문 — 모델을 거치지 않는다
+	assert d["title"] == "2026 mock exam"  # 파일명이 아니라 인쇄된 머리글
+	assert d["questions"] == [1, 2]
+	assert "문항 2개" in d["text"]
+	assert d["text"].rstrip().endswith("문항 번호만 말해도 됩니다.")   # 설명하고 기다린다
+
+
+def test_tutor_say_reads_the_question_from_the_text_layer(base_url):
+	_open_exam(base_url)
+	status, d = _json_post(base_url + "/tutor/say", {"text": "1번 읽어줘"})
+	assert status == 200
+	assert d["grounded"] is True
+	assert "Read the chart below." in d["text"]
+	assert d["current"] == 1
+	assert d["unsupported"] == []
+
+
+def test_tutor_say_before_a_document_says_what_to_do(base_url):
+	# 상태코드만 오면 낭독으로는 아무 정보가 아니다 — 무엇을 하면 되는지가 문장에 있어야 한다.
+	status, d = _json_post(base_url + "/tutor/say", {"text": "1번 읽어줘"})
+	assert status == 400
+	assert "시험지" in d["text"] and "PDF" in d["text"]
+
+
+def test_tutor_open_rejects_a_non_pdf_with_actionable_korean(base_url):
+	status, d = _open_exam(base_url, data=b"not a pdf at all", name="notes.txt")
+	assert status == 400
+	assert "PDF" in d["text"]
+
+
+def test_tutor_open_rejects_a_scanned_pdf(base_url):
+	# 텍스트 레이어가 없으면 이 모드가 약속한 정확도가 성립하지 않는다 → 여기서 멈춘다.
+	status, d = _open_exam(base_url, data=scanned_pdf(), name="scan.pdf")
+	assert status == 400
+	assert "스캔 PDF" in d["text"]
+
+
+def test_tutor_open_is_400_for_an_empty_upload(base_url):
+	status, d = _open_exam(base_url, data=b"")
+	assert status == 400
+	assert "PDF" in d["text"]
+
+
+def test_tutor_open_sanitises_a_traversing_file_name(base_url):
+	status, d = _open_exam(base_url, name="../../etc/passwd.pdf")
+	assert status == 200
+	assert d["name"] == "passwd.pdf"        # 경로 조각은 남지 않는다
+
+
+def test_tutor_review_export_carries_the_machine_generated_notice(base_url):
+	_open_exam(base_url)
+	_json_post(base_url + "/tutor/say", {"text": "1번 읽어줘"})
+	status, body = _get(base_url + "/tutor/review")
+	assert status == 200
+	text = body.decode("utf-8")
+	assert "AI가" in text                   # 기계 생성 고지는 항상 붙는다 (B1)
+	assert "Read the chart below." in text
+
+
+@pytest.mark.skipif(shutil.which("pdftoppm") is None, reason="poppler-utils 미설치")
+def test_tutor_review_records_a_figure_description_once(base_url):
+	# 엔진과 세션이 같은 노트에 각각 적으면 도표 설명이 두 번 남는다 — 같은 문장을 두 번
+	# 들은 것이 학습 기록상 두 번 일어난 일은 아니다(`TutorSession.repeat`과 같은 이유).
+	#
+	# 이 계약은 도표 설명이 **성공했을 때**의 것이라 실제 렌더링이 필요하다. poppler가 없는
+	# 환경(CI 러너)에서는 아래 test_…_says_how_to_install이 그 경로를 대신 지킨다.
+	_open_exam(base_url)
+	status, d = _json_post(base_url + "/tutor/say", {"text": "도표 설명해줘"})
+	assert status == 200 and d["grounded"] is False
+	_, body = _get(base_url + "/tutor/review")
+	assert body.decode("utf-8").count(d["text"]) == 1
+
+
+def test_tutor_figure_without_poppler_says_what_to_install(base_url, monkeypatch):
+	"""poppler가 없으면 무엇을 설치하면 되는지 **말한다** — 그리고 원문 낭독은 계속 된다.
+
+	이 문장은 브라우저에서 그대로 음성으로 읽히므로, 상태코드나 스택트레이스가 아니라 조치
+	가능한 한국어여야 한다(낭독 대상이 사용자다). `shutil.which`가 호출 시점에 PATH를 보므로
+	PATH를 비우면 서버 스레드에서도 미설치 환경이 재현된다.
+	"""
+	_open_exam(base_url)
+	monkeypatch.setenv("PATH", "")
+	status, d = _json_post(base_url + "/tutor/say", {"text": "도표 설명해줘"})
+	assert status == 200          # 400으로 끝내면 대화가 끊긴다 — 실패도 응답이다
+	assert d["grounded"] is False
+	assert "pdftoppm" in d["text"] and "설치" in d["text"]
+
+	# 그림 하나 못 그린 것이 시험지 낭독을 막아서는 안 된다.
+	status, d = _json_post(base_url + "/tutor/say", {"text": "1번 읽어줘"})
+	assert status == 200 and d["grounded"] is True
+	assert "Read the chart below." in d["text"]
+
+
+def test_tutor_review_without_a_document_is_400(base_url):
+	status, body = _get(base_url + "/tutor/review")
+	assert status == 400
+	assert "시험지" in json.loads(body)["text"]
+
+
+def test_tutor_close_forgets_the_document_and_deletes_the_upload(base_url):
+	_open_exam(base_url)
+	uploaded = server.Handler.bitgil.tutor._dir
+	assert os.path.isdir(uploaded)
+	status, d = _json_post(base_url + "/tutor/close", {})
+	assert status == 200 and d["closed"] is True
+	# 시험지에는 학생 이름이 적혀 있을 수 있다 — 업로드본을 남기지 않는다.
+	assert not os.path.exists(uploaded)
+	status, _ = _json_post(base_url + "/tutor/say", {"text": "1번"})
+	assert status == 400
+
+
+def test_tutor_opening_a_second_exam_deletes_the_first_upload(base_url):
+	_open_exam(base_url)
+	first = server.Handler.bitgil.tutor._dir
+	_open_exam(base_url, name="second.pdf")
+	assert not os.path.exists(first)
+	assert server.Handler.bitgil.tutor.name == "second.pdf"
+
+
+def test_tutor_page_is_served(base_url):
+	status, body = _get(base_url + "/tutor.html")
+	assert status == 200
+	assert b"tutor.js" in body
+
+
+def test_every_asset_the_tutor_page_references_is_served(base_url):
+	# 스크립트·스타일 경로가 하나만 어긋나도 화면은 **조용히** 빈 페이지가 된다. 화면을 못
+	# 보는 사용자에게 "아무 일도 일어나지 않음"은 진단할 수 없는 고장이라, 여기서 고정한다.
+	# (Pi에는 headless 브라우저가 없어 렌더링 자체는 실기기 확인 대상 — docs/qa.md §5.)
+	_, page = _get(base_url + "/tutor.html")
+	html = page.decode("utf-8")
+	refs = re.findall(r'(?:src|href)="([^"#:]+)"', html)
+	assert "tutor.js" in refs and "styles.css" in refs
+	for ref in refs:
+		status, body = _get(base_url + "/" + ref.lstrip("/"))
+		assert status == 200, f"{ref} → {status}"
+		assert body, f"{ref} 이(가) 비어 있다"
+
+
+def test_config_names_the_profile_used_for_figures(base_url):
+	# 도표 설명은 보간 금지 하드 규칙이 있는 learning-chart로 돈다(A2).
+	status, body = _get(base_url + "/config")
+	assert status == 200
+	assert json.loads(body)["tutor_profile"] == "learning-chart"

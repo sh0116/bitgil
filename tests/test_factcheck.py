@@ -32,6 +32,19 @@ def test_a_fabricated_value_still_surfaces_next_to_navigation_numbers():
 	assert unsupported_numbers("3번 문제의 답은 155입니다.", ["문항"]) == ["155"]
 
 
+def test_a_counted_span_of_years_is_not_checked():
+	# 실측 오탐(Bedrock, 2026-08-27): 2021~2024년 막대그래프 설명이 "4년간의 꾸준한 증가"로
+	# 끝나자 4가 근거 없는 숫자로 고지됐다. 라벨을 읽었다는 주장이 아니라 센 결과다.
+	source = "2021년 300 2022년 450 2024년 600"
+	assert unsupported_numbers("4년간의 꾸준한 증가 추세입니다.", [source]) == []
+
+
+def test_a_year_label_itself_is_still_checked():
+	# "년간"만 빼는 것이다 — 축 눈금 자체를 지어내는 것은 이 검사가 잡아야 하는 것이다.
+	source = "2021년 300 2022년 450 2024년 600"
+	assert unsupported_numbers("2023년은 500명입니다.", [source]) == ["2023", "500"]
+
+
 def test_list_markers_in_the_model_reply_are_not_checked():
 	# 실측에서 나온 오탐: 모델이 답을 "1) … 5) 전반적인 추세"로 구조화하자 5가 근거 없는
 	# 숫자로 고지됐다. 목록 번호는 화면에 대한 주장이 아니다.
