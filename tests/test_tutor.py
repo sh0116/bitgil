@@ -149,6 +149,14 @@ def test_overview_counts_questions_and_pages():
 	assert "문항 2개" in text and "1번부터 2번까지" in text
 
 
+def test_the_word_overview_re_reads_the_overview():
+	# tutor.html의 "개요 다시" 버튼이 보내는 말. 개요 없이 떨어지면 학생은 자리를 잃는다.
+	session, provider, _ = _session()
+	reply = session.respond("개요")
+	assert "문항 2개" in reply.text
+	assert provider.calls == 0  # 개요는 왕복 없이, 근거만으로.
+
+
 # --- 시험지를 펼쳤을 때: 무슨 시험지인지 말하고 기다린다 ----------------------------
 
 def test_overview_reads_the_printed_header_not_the_file_name():
