@@ -50,6 +50,30 @@
 | F3 | 도메인/커뮤니티 프로파일 팩 | YAML로 게임·학습 플랫폼별 해설 설정을 커뮤니티가 기여 (기본 6종) | ✅ 코드 |
 | F4 | 학습 특화 기능 | 그래프·차트 심층 설명, 수식 낭독, 복습 노트 내보내기(기계생성 고지·출처 포함) | ✅ 코드 |
 | F5 | 멀티 프로바이더 + 로컬 LLM | Anthropic / Bedrock / OpenAI / Gemini / Ollama, BYO API Key | ✅ 코드 |
+| F6 | 시험지 직독 과외 모드 | 시험지 PDF를 함께 읽으며 대화. 지문·선택지는 **텍스트 레이어 원문**(모델 미호출), 도표만 비전, 모델이 말한 숫자는 원문과 대조 | ✅ 코드 |
+
+### 시험지 직독 과외 모드 (F6) — 화면이 아니라 문서를 입력으로
+
+두 번째 입력 경로입니다. 화면 캡처와 같은 코어를 쓰지만, 근거가 **화면 픽셀이 아니라 PDF
+텍스트 레이어**라서 지문·선택지는 지어낼 여지가 없습니다.
+
+| 무엇을 물으면 | 어디서 답이 오나 | 모델 호출 |
+|---|---|---|
+| 시험지를 열었을 때 (개요) | 인쇄된 머리글 + 문항 수·번호·도표 문항 | **0회** |
+| `3번` · `선택지` · `다음`/`이전` · `다시` | PDF 텍스트 레이어 그대로 | **0회** |
+| `도표 설명해줘` | 그 쪽만 이미지로 렌더링(poppler) → 비전 모델 | 1회 |
+| 그 밖의 질문 | 그 문항 **원문만을 근거로** (정답은 대신 판정하지 않음) | 1회 |
+
+- 응답마다 **원문인지 모델의 말인지 표시**합니다 — 화면에 태그로, **음성에도 접두어로**.
+  같은 목소리로 읽히는 두 종류의 문장은 신뢰도가 전혀 다릅니다.
+- 모델이 말한 숫자가 원문에 없으면 문장을 지우지 않고 **고지를 덧붙입니다**
+  (`bitgil_core.factcheck`). 프롬프트가 아니라 코드라서 모델을 바꿔도 작동합니다.
+- 텍스트 레이어가 없는 **스캔 PDF는 의도적으로 거절**합니다. 조용히 비전 경로로 흘리면
+  사용자가 근거 있는 낭독과 추측을 구분할 수 없습니다.
+- 브라우저: `python web/server.py` → <http://localhost:8765/tutor.html> (화면 공유를 쓰지
+  않으므로 secure context가 필요 없습니다). 터미널: `scripts/bitgil_tutor.py`.
+- PDF 처리는 pypdf(BSD-3) + poppler `pdftoppm`(별도 실행 파일). **AGPL 라이브러리를 쓰지
+  않습니다** — 근거는 [docs/licensing.md](docs/licensing.md).
 
 ### 앰비언트 데스크톱 코파일럿 (M6) — 코어 구현 완료
 
@@ -77,12 +101,14 @@ core/         재사용 가능한 코어 로직 (MIT) — 스크린리더·OS �
     engine, context/, live, postprocess/  해설 엔진 · 세션 컨텍스트 · 라이브 루프 · 문장 후처리
     profiles, ocr, review                 YAML 프로파일 · OCR 어댑터 · 복습 노트(F4)
     triage, safety, goal                  앰비언트 코파일럿: 트리아지 · 안전 · 목표 추적
+    document, tutor, factcheck            시험지 PDF 직독 · 과외 세션(규칙 라우터) · 수치 대조(F6)
     providers/                            anthropic·bedrock·openai·gemini·ollama·omniroute + 팩토리
 web/          플랫폼 무관 웹 레퍼런스 클라이언트 (키 없는 demo 프로바이더 내장)
-scripts/      CLI 프로토타입(bitgil_demo) · 애드온 빌드(build_addon)
+              static/index.html 화면 공유 해설 · static/tutor.html 시험지 대화(F6)
+scripts/      CLI 프로토타입(bitgil_demo · bitgil_tutor) · 애드온 빌드(build_addon)
 profiles/     기본 프로파일 팩 6종 (CC BY 4.0)
-docs/         한/영 문서 (설계·근거·QA·로드맵)
-tests/        오프라인 테스트 179개 (코어·애드온 스텁·트리아지·웹 서버·프로바이더 등)
+docs/         한/영 문서 (설계·근거·QA·로드맵) — 이어서 개발한다면 docs/handoff.md 먼저
+tests/        오프라인 테스트 279개 (코어·애드온 스텁·트리아지·웹 서버·프로바이더·과외 모드)
 ```
 
 라이선스 이중 구조: NVDA가 GPLv2이므로 애드온 본체는 GPLv2, 다른 스크린리더/독립 앱으로의
@@ -146,27 +172,43 @@ python scripts/bitgil_demo.py --provider omniroute --list-routes
 프로바이더(예: OpenRouter)를 하나 연결하는 편이 확실합니다. 게이트웨이에 토큰을 걸었다면
 `OMNIROUTE_API_KEY`(또는 `BITGIL_API_KEY`)만 export하면 자동 인증됩니다.
 
-**③ 이미지 한 장을 CLI로 — 실 프로바이더/로컬 모델 필요.**
+**③ 시험지 PDF로 대화 (F6) — 원문 낭독은 키 없이도 진짜입니다.**
+
+```bash
+python web/server.py --profile learning-chart
+#  → http://localhost:8765/tutor.html 에서 시험지 PDF를 끌어다 놓고 말하거나 입력
+```
+
+`demo` 프로바이더로도 **지문·선택지 낭독은 실제 동작합니다** — 텍스트 레이어를 그대로 읽기
+때문입니다(모델을 안 씁니다). 도표 설명만 캔에 담긴 문장이 나오고, 실제로 보게 하려면
+`--provider bedrock`(또는 anthropic 등)을 지정하세요. 도표 렌더링에는 poppler가 필요합니다:
+`sudo apt install poppler-utils` / `brew install poppler`.
+
+**④ 이미지 한 장을 CLI로 — 실 프로바이더/로컬 모델 필요.**
 
 ```bash
 python scripts/bitgil_demo.py --image slide.png --provider anthropic --profile learning-chart
-# 로컬 모델: --provider ollama --model llava
+# 시험지 PDF를 터미널에서: python scripts/bitgil_tutor.py --pdf 모의고사.pdf
 ```
 
-**④ `.nvda-addon` 빌드:** `python scripts/build_addon.py` → `dist/bitgil-<version>.nvda-addon`.
+**⑤ `.nvda-addon` 빌드:** `python scripts/build_addon.py` → `dist/bitgil-<version>.nvda-addon`.
 자세한 사용법은 [docs/development.md](docs/development.md). QA 재현·시나리오는 [docs/qa.md](docs/qa.md).
 
 ## 개발 상태 / Status
 
-🚧 **M1~M3 코드 완료 + M6(앰비언트 코파일럿) 코어 구현 완료 — 프로토타입 동작.**
+🚧 **M1~M3 코드 완료 + M6(앰비언트 코파일럿) + F6(시험지 직독 과외 모드) 구현 완료 —
+프로토타입 동작.**
 
 - **동작:** 라이브 해설(문장 스트리밍)·질의응답·복습 노트·NVDA 설정 패널·프로파일 팩 6종·
-  CLI·애드온 빌드, 그리고 인터럽트 트리아지·안전 휴리스틱·목표 추적·플랫폼 무관 웹 클라이언트.
-- **검증:** 오프라인 테스트 **179개 통과**, ruff clean, 시크릿 스캔 clean. 최근 QA 라운드에서
+  CLI·애드온 빌드, 인터럽트 트리아지·안전 휴리스틱·목표 추적·플랫폼 무관 웹 클라이언트,
+  그리고 시험지 PDF를 올려 대화하는 브라우저 화면(`/tutor.html`).
+- **검증:** 오프라인 테스트 **279개 통과**, ruff clean, 시크릿 스캔 clean. 최근 QA 라운드에서
   가드레일·파이프라인·프로바이더·웹 결함을 코드 점검으로 찾아 회귀 테스트와 함께 수정
-  ([docs/qa.md](docs/qa.md)). AWS Bedrock은 실 자격증명으로 검증(ap-northeast-2).
+  ([docs/qa.md](docs/qa.md)). AWS Bedrock은 실 자격증명으로 검증(ap-northeast-2) — 과외 모드의
+  도표 설명이 라벨 없는 막대를 **보간하지 않는 것**까지 실측했습니다.
 - **남은 것(실기기 필요):** 데스크톱 NVDA에서의 음성/끼어들기 실배선, OS 이벤트 소스(UIA/토스트)
-  연결, 실 LLM 해설 **품질** 튜닝(오류·환각률).
+  연결, 실 LLM 해설 **품질** 튜닝(오류·환각률), 시험지 대화 화면을 스크린리더로 실사용
+  (개발기가 라즈베리파이라 브라우저 렌더링을 눈으로 본 검증이 아직 없습니다).
 
 지금 무엇이 막혀 있고 다음에 무엇을 할지는 **[docs/handoff.md](docs/handoff.md)** — 다른 기계에서
 개발을 이어받을 때 먼저 읽는 문서입니다. 로드맵 전체는 [docs/roadmap.md](docs/roadmap.md),
