@@ -58,7 +58,9 @@
 					음성 낭독 켜기
 				</label>
 				<button id="stopSpeech" type="button">낭독 중지 (Esc)</button>
-				<a id="review" href="/tutor/review" download="bitgil-review.md">복습 노트 저장</a>
+				<!-- 링크가 아니라 버튼입니다: 평범한 링크는 실패했을 때(시험지를 열지 않았으면
+				     400) 브라우저가 JSON을 띄우고 아무 말도 하지 않습니다. -->
+				<button id="review" type="button" disabled>복습 노트 저장</button>
 				<button id="close" type="button" disabled>시험지 닫기</button>
 			</div>
 		</section>

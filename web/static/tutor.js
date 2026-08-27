@@ -101,7 +101,7 @@ function announce(data) {
 // ---- 서버 ------------------------------------------------------------------
 
 function setEnabled(on) {
-	for (const el of [$("ask"), $("send"), $("close")]) el.disabled = !on;
+	for (const el of [$("ask"), $("send"), $("close"), $("review")]) el.disabled = !on;
 	for (const b of document.querySelectorAll(".q")) b.disabled = !on;
 	$("mic").disabled = !on || !recognition;
 }
@@ -195,6 +195,36 @@ async function openPdf(file) {
 	}
 }
 
+// 복습 노트는 링크가 아니라 이 함수로 내려받습니다. `<a href="/tutor/review">`는 실패했을 때
+// 브라우저가 JSON 응답을 그냥 띄워 버리고, 성공했을 때도 아무 말이 없습니다 — 화면을 못 보는
+// 사용자에게는 저장이 됐는지조차 알 수 없는 동작입니다. 성공·실패를 **둘 다 말합니다.**
+async function saveReview() {
+	setStatus("복습 노트를 만드는 중…");
+	try {
+		const res = await fetch("/tutor/review");
+		if (!res.ok) {
+			const data = await res.json().catch(() => ({}));
+			const msg = data.text || "복습 노트를 저장할 수 없습니다.";
+			setStatus(msg);
+			speak(msg);
+			return;
+		}
+		const url = URL.createObjectURL(await res.blob());
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = "bitgil-review.md";
+		a.click();
+		URL.revokeObjectURL(url);
+		const msg = "복습 노트를 bitgil-review.md 파일로 저장했습니다. 기계가 만든 설명이라는 고지가 함께 들어 있습니다.";
+		setStatus(msg);
+		speak(msg);
+	} catch (e) {
+		const msg = "복습 노트 저장 실패: " + e.message;
+		setStatus(msg);
+		speak(msg);
+	}
+}
+
 async function closeDoc() {
 	await fetch("/tutor/close", { method: "POST" });
 	setEnabled(false);
@@ -272,6 +302,7 @@ $("speakOn").addEventListener("change", () => {
 	if (!speaking) stopSpeech();
 });
 $("stopSpeech").addEventListener("click", stopSpeech);
+$("review").addEventListener("click", saveReview);
 $("close").addEventListener("click", closeDoc);
 
 document.addEventListener("keydown", (e) => {

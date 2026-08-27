@@ -12,6 +12,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import threading
 import urllib.error
 import urllib.parse
@@ -314,6 +315,20 @@ def test_tutor_page_is_served(base_url):
 	status, body = _get(base_url + "/tutor.html")
 	assert status == 200
 	assert b"tutor.js" in body
+
+
+def test_every_asset_the_tutor_page_references_is_served(base_url):
+	# 스크립트·스타일 경로가 하나만 어긋나도 화면은 **조용히** 빈 페이지가 된다. 화면을 못
+	# 보는 사용자에게 "아무 일도 일어나지 않음"은 진단할 수 없는 고장이라, 여기서 고정한다.
+	# (Pi에는 headless 브라우저가 없어 렌더링 자체는 실기기 확인 대상 — docs/qa.md §5.)
+	_, page = _get(base_url + "/tutor.html")
+	html = page.decode("utf-8")
+	refs = re.findall(r'(?:src|href)="([^"#:]+)"', html)
+	assert "tutor.js" in refs and "styles.css" in refs
+	for ref in refs:
+		status, body = _get(base_url + "/" + ref.lstrip("/"))
+		assert status == 200, f"{ref} → {status}"
+		assert body, f"{ref} 이(가) 비어 있다"
 
 
 def test_config_names_the_profile_used_for_figures(base_url):
