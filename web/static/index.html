@@ -9,8 +9,9 @@
 <body>
 	<main>
 		<h1>빛길 <span lang="en">(Bitgil)</span></h1>
-		<p class="tagline">화면을 공유하면 <strong>조용히 지켜보다가</strong>, 화면이 크게 바뀌거나
-			여러분이 물어볼 때 알려 줍니다. OS 구분 없이 — 화면은 그냥 화면입니다.</p>
+		<p class="tagline">화면을 공유하면 <strong>먼저 이게 무슨 화면인지 한 줄로 알려 주고</strong>,
+			자세한 설명이 필요한지 물어봅니다. 그다음엔 궁금한 걸 <strong>말이나 글로 물어보면</strong>
+			답합니다. OS 구분 없이 — 화면은 그냥 화면입니다.</p>
 		<p><a href="tutor.html">시험지 PDF로 대화하기 →</a> (지문·선택지는 원문 그대로 읽고, 도표만 모델이 설명합니다)</p>
 
 		<div class="controls">
@@ -59,21 +60,44 @@
 
 		<p id="status" role="status" aria-live="assertive">준비됨. “화면 공유 시작”을 누르세요.</p>
 
+		<!-- 화면 공유 뒤 대화: 화면에 대해 묻고 답합니다. 트리거 ①("지금 화면 설명")과 같은
+		     프레임을 서버로 보내되, 질문을 함께 실어(F2) OCR식 나열 대신 방향부터 잡아 줍니다.
+		     타자·음성·빠른 버튼이 모두 같은 문장을 보내므로 서로 어긋나지 않습니다. -->
+		<section aria-labelledby="talk-h">
+			<h2 id="talk-h">화면에 대해 대화하기</h2>
+
+			<form id="askForm" class="ask">
+				<label for="ask">묻거나 입력하기</label>
+				<input id="ask" type="text" autocomplete="off" disabled
+				       placeholder="예: 이 화면 뭐야? / 여기서 뭘 할 수 있어? / 자세히 설명해줘">
+				<button id="send" type="submit" disabled>보내기</button>
+				<button id="mic" type="button" disabled aria-pressed="false">🎙 음성 입력</button>
+			</form>
+
+			<div class="quick" role="group" aria-label="자주 쓰는 말">
+				<button type="button" class="q" data-say="이 화면이 전체적으로 뭐야?" disabled>이 화면 뭐야</button>
+				<button type="button" class="q" data-say="이 화면을 처음 보는 사람에게 전체 구조와 무엇을 할 수 있는지 차근차근 설명해줘" disabled>자세히 설명</button>
+				<button type="button" class="q" data-say="여기서 내가 뭘 할 수 있어? 할 수 있는 동작들을 알려줘" disabled>뭘 할 수 있어</button>
+				<button type="button" class="q" data-say="다시" disabled>다시 듣기</button>
+			</div>
+		</section>
+
 		<details>
 			<summary>무엇을 할 수 있나요?</summary>
 			<ul>
-				<li><b>지금 화면 설명 (Alt+D)</b> — 언제든 지금 보이는 화면을 설명받습니다(변화가 없어도).</li>
+				<li><b>화면 공유 시작</b> — 공유하면 무슨 화면인지 <b>한 줄로 먼저 말하고</b>, 자세한 설명이 필요한지 물어봅니다.</li>
+				<li><b>묻기</b> — 지금 보이는 화면에 대해 무엇이든 물어보세요(“이 화면 뭐야?”, “여기서 뭘 할 수 있어?”).</li>
+				<li><b>지금 화면 설명 (Alt+D)</b> — 언제든 지금 보이는 화면을 전체 구조부터 설명받습니다.</li>
 				<li><b>중요한 변화는 자동으로 알림</b> — 켜 두면 화면이 크게 바뀔 때만 스스로 말합니다. 끄면 부를 때만 말합니다.</li>
-				<li><b>자동 알림 민감도</b> — 얼마나 큰 변화부터 자동으로 말할지 조절합니다.</li>
-				<li><b>Esc</b> — 낭독을 멈춥니다.</li>
+				<li><b>Esc</b> 낭독 중지 · <b>Alt+M</b> 음성 입력</li>
 			</ul>
 			<p class="hint">이 웹 모드는 화면을 <b>읽고 설명</b>합니다. 버튼을 대신 눌러 주는 조작(자동화)은
 				아직 이 경로에 없습니다 — 화면 조작은 OS 연동이 필요한 별도 기능입니다.</p>
 		</details>
 
 		<section aria-labelledby="log-h">
-			<h2 id="log-h">해설 기록</h2>
-			<ul id="log" aria-live="polite" aria-relevant="additions"></ul>
+			<h2 id="log-h">대화 기록</h2>
+			<ol id="log" class="log" aria-live="polite" aria-relevant="additions"></ol>
 		</section>
 
 		<p class="meta" id="meta"></p>

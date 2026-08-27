@@ -99,6 +99,21 @@ button:disabled { background: var(--muted); cursor: not-allowed; filter: none; }
 .msg .body { margin: .3rem 0 0; white-space: pre-line; }   /* 낭독 단위 줄바꿈 유지 */
 .msg.user { background: transparent; border: 1px dashed var(--muted); }
 .msg.bot { border-left: 4px solid var(--muted); }
+
+/* --- 챗봇 배치: 기록은 위쪽 스크롤 영역, 입력창은 아래 고정 -----------------
+   대화가 길어져도 "무엇을 물어볼 수 있는지"가 시야에서 사라지지 않게. 오른쪽=내 말,
+   왼쪽=도우미 말로 나눠, 화면을 보는 사용자에게도 흐름이 한눈에 들어오게 합니다. */
+.chat { display: flex; flex-direction: column; }
+.transcript {
+	flex: 1 1 auto; overflow-y: auto; max-height: 55vh; min-height: 8rem;
+	padding: .25rem; margin: .5rem 0;
+}
+.composer {
+	position: sticky; bottom: 0; background: var(--bg);
+	padding-top: .5rem; border-top: 1px solid var(--card);
+}
+.msg.user { align-self: flex-end; max-width: 85%; }
+.msg.bot { align-self: flex-start; max-width: 90%; }
 .msg.bot.grounded { border-left-color: var(--reason); }
 .who { font-size: .78rem; font-weight: 700; color: var(--muted); }
 .tag {

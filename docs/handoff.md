@@ -7,7 +7,7 @@
 
 - 코드: M1~M3 + M6(앰비언트 코파일럿) + **문서 직독 과외 모드(브라우저 UI까지)** +
   **안내형 과외 흐름 · 화면 트리거 모드** 구현 완료.
-  오프라인 테스트 **294개** 통과, `ruff check core/ tests/ scripts/ web/` clean, 시크릿 스캔 clean.
+  오프라인 테스트 **299개** 통과, `ruff check core/ tests/ scripts/ web/` clean, 시크릿 스캔 clean.
 - 최근 머지: PR #11~#17 (OmniRoute 프로바이더 · 비전 라우트 탐색 · fall-forward ·
   과외 모드 코어 #16 · `다시`의 출처 유지 #17) + **PR #20(`7640704`)** —
   브라우저 과외 대화 + 안내형 흐름 + 화면 트리거를 한꺼번에 `main`에 넣음.
