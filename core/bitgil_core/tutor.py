@@ -7,8 +7,12 @@
    여기서 환각은 구조적으로 불가능하고, 왕복이 없으니 즉시 응답합니다.
 2. 도표·그림 설명 — 페이지를 렌더링해 비전 모델로. 원문에 없는 숫자는 `factcheck`가
    고지를 붙입니다.
-3. 물어보기 — 학생의 질문에 답하되, **근거는 그 문항의 원문으로 한정**합니다. 원문에
-   없으면 지어내지 않고 없다고 말합니다.
+3. 물어보기 — 학생의 질문에 답합니다. **그 문항이 있는 페이지를 그림으로 렌더링해
+   모델에 보여 주고** 답하게 합니다. 텍스트 레이어를 근거로 쓰지 않는 이유는 안전입니다:
+   pypdf가 뽑아 주는 텍스트는 위첨자·지수·수식을 눌러 버려서("5^{-1/2}"이 "5 -1/2"로),
+   그 눌린 문자열만 모델에 주면 거듭제곱을 곱셈으로 잘못 읽고 엉뚱한 계산을 지어냅니다.
+   대신 인쇄된 그대로의 그림을 넘겨 실제 표기를 보고 답하게 하고, 원문에 없는 숫자에는
+   `factcheck`가 고지를 붙입니다. poppler가 없어 그림을 못 만들면 원문 텍스트로 폴백합니다.
 
 가르치는 태도에 대한 결정: **정답을 대신 판정하지 않습니다.** 답을 그냥 불러 주면 듣는
 사람은 검증할 수 없고(BLV 사용자는 AI 오류를 약 50%만 잡아냅니다), 학습 자체를 대신해
@@ -223,7 +227,15 @@ class TutorSession:
 	# ---- 3) 물어보기 (원문 근거 한정) ---------------------------------------------
 
 	def ask(self, utterance: str) -> TutorReply:
-		"""학생의 질문에 그 문항 원문만을 근거로 답합니다(이미지 없음 → 빠르고 쌉니다)."""
+		"""학생의 질문에 답합니다 — 그 문항이 있는 페이지를 **그림으로 보여 주고** 답하게 합니다.
+
+		왜 원문 텍스트가 아니라 그림인가: 텍스트 레이어는 위첨자·지수·수식을 눌러 버립니다
+		("5^{-1/2}"이 "5 -1/2"로). 그 눌린 문자열만 모델에 주면 거듭제곱을 곱셈으로 잘못
+		읽고 엉뚱한 계산을 지어냅니다 — 환각은 안전 문제입니다. 그래서 인쇄된 그대로의
+		페이지 그림을 넘겨 실제 표기를 보고 답하게 하고, 페이지에 없는 숫자에는 factcheck가
+		고지를 붙입니다. 이 답은 모델의 말이므로 grounded=False입니다(지문·선택지 낭독은
+		여전히 원문 직독 — grounded).
+		"""
 		question = self.current
 		if question is None:
 			return self._reply(
@@ -231,6 +243,33 @@ class TutorSession:
 				grounded=True,
 			)
 		source = question.source_text()
+		try:
+			frame = self.document.render_page(question.page, dpi=self.render_dpi)
+		except RuntimeError:
+			# poppler가 없어 그림을 못 만들면 대화를 끊지 않고 원문 텍스트로 답합니다.
+			# (수식은 눌렸을 수 있으므로 근거를 문항 원문으로 못박습니다.)
+			return self._ask_from_text(utterance, source)
+		prompt = (
+			f"이것은 {question.number}번 문제가 인쇄된 시험지 페이지입니다. "
+			f"학생의 질문에 답해 주세요: {utterance}\n"
+			"인쇄된 수식·지수·기호를 그대로 읽고, 페이지에 없는 값은 지어내지 마세요. "
+			"정답을 대신 판정하지 말고, 무엇을 묻는 문제인지와 원문의 단서를 짚어 주세요."
+		)
+		# 근거로 대조하는 원문은 문항 원문 + 페이지 전체 텍스트입니다(축 라벨처럼 문항 밖에
+		# 인쇄된 값을 근거 없다고 잘못 표시하지 않도록 — describe_figure와 같은 이유).
+		narration = self.engine.narrate(frame, question=prompt).text
+		text, missing = annotate_unsupported(
+			narration, [source, self.document.page_text(question.page)]
+		)
+		return self._reply(text, grounded=False, unsupported=missing)
+
+	def _ask_from_text(self, utterance: str, source: str) -> TutorReply:
+		"""그림을 못 만들 때의 폴백 — 문항 원문 텍스트만을 근거로 답합니다.
+
+		페이지를 렌더링할 수 없는 환경(poppler 미설치)에서도 대화가 끊기지 않게 하는
+		마지막 수단입니다. 텍스트 레이어는 수식을 눌러 버릴 수 있으므로 이 경로가 최선은
+		아니지만, 원문에 없는 값에 factcheck 고지를 붙이는 안전장치는 그대로 걸립니다.
+		"""
 		messages = [
 			Message(role="system", text=TUTOR_PROMPT),
 			Message(role="system", text=f"문항 원문:\n{source}"),
