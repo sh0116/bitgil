@@ -69,3 +69,48 @@ h2 { font-size: 1.15rem; margin: 1.5rem 0 .5rem; }
 @media (prefers-reduced-motion: reduce) {
 	* { animation: none !important; transition: none !important; }
 }
+
+/* --- 시험지 대화 모드 (tutor.html) ------------------------------------------
+   Same high-contrast rules; the only new idea is that a reply must LOOK as
+   different as it is — 원문(시험지 그대로) vs 모델(추측일 수 있음). */
+input[type="text"], input[type="file"] { font: inherit; padding: .5rem .6rem;
+	border-radius: 8px; border: 1px solid var(--muted); background: var(--bg); color: var(--fg); }
+button:disabled { background: var(--muted); cursor: not-allowed; filter: none; }
+
+.drop {
+	padding: 1rem; background: var(--card); border: 2px dashed var(--muted);
+	border-radius: 10px;
+}
+.drop.over { border-color: var(--accent); border-style: solid; }
+.drop label { font-weight: 600; display: block; margin-bottom: .4rem; }
+.hint { color: var(--muted); font-size: .9rem; margin: .5rem 0 0; }
+
+.ask { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .5rem 0; }
+.ask label { font-weight: 600; }
+.ask input[type="text"] { flex: 1 1 18rem; }
+
+.quick, .chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: .5rem 0; }
+.quick button, .chip { font-size: .95rem; padding: .45rem .8rem; }
+.chip { background: var(--bg); color: var(--accent); border: 1px solid var(--accent);
+	border-radius: 999px; font-weight: 700; cursor: pointer; }
+
+.log { display: flex; flex-direction: column; }
+.msg { padding: .6rem .8rem; margin-bottom: .5rem; background: var(--card); border-radius: 8px; }
+.msg .body { margin: .3rem 0 0; white-space: pre-line; }   /* 낭독 단위 줄바꿈 유지 */
+.msg.user { background: transparent; border: 1px dashed var(--muted); }
+.msg.bot { border-left: 4px solid var(--muted); }
+.msg.bot.grounded { border-left-color: var(--reason); }
+.who { font-size: .78rem; font-weight: 700; color: var(--muted); }
+.tag {
+	display: inline-block; font-size: .78rem; font-weight: 700; padding: .1rem .45rem;
+	border-radius: 4px; color: #fff;
+}
+.tag.source { background: var(--reason); }
+.tag.model { background: var(--accent); }
+.elapsed { font-size: .78rem; color: var(--muted); margin-left: .4rem; }
+.notice {
+	margin: .4rem 0 0; padding: .4rem .6rem; font-size: .92rem; font-weight: 600;
+	border: 1px solid var(--reason); border-radius: 6px;
+}
+details { margin-top: 1.5rem; }
+details summary { cursor: pointer; font-weight: 600; }

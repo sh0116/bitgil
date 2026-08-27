@@ -172,30 +172,58 @@ python scripts/bitgil_demo.py --provider omniroute --list-routes
 - **재현:** CLI `python scripts/bitgil_demo.py --image slide.png --ask "제목이 뭐야?"`
   (실 프로바이더 또는 ollama 필요). 배관 자체는 `tests/test_pipeline.py`가 커버.
 
-### S9 — 시험지를 첨부해 대화하는 모드 (문서 직독, `scripts/bitgil_tutor.py`)
+### S9 — 시험지를 첨부해 대화하는 모드 (문서 직독)
 
 - **목적:** 시험지 PDF를 열면 **무슨 시험지인지 먼저 말하고 기다린다.** 지문·선택지는 텍스트
   레이어 원문 그대로(모델 미호출), 도표만 비전, 모델이 말한 숫자는 원문과 대조.
-- **어디서 테스트하나:** 지금 이 대화 형태는 **터미널 REPL이 전부다.** `web/server.py`에는
-  PDF 업로드 엔드포인트가 없다(`/config`, `/narrate`, `/narrate/stream`, `/triage`,
-  `/configure`만). 브라우저에서 파일을 끌어다 놓고 대화하는 화면은 **아직 없는 기능**이다
-  (§5 참조). 그래서 키 없이:
+- **어디서 테스트하나:** 사용자에게 보여 주는 경로는 **브라우저**다(S9-A). 터미널 REPL은
+  같은 코어를 스크립트로 두드리는 개발용 경로다(S9-B) — 라우팅 규칙은 양쪽이 같은
+  `TutorSession.respond`를 쓴다.
 
-  ```bash
-  # 대화형 — 열면 개요를 말하고 프롬프트에서 기다린다
-  python scripts/bitgil_tutor.py --pdf docs/demo/모의고사_샘플.pdf
+#### S9-A — 브라우저에서 PDF 올려 대화 (`web/static/tutor.html`, 권장 경로)
 
-  # 스크립트로 한 번에 (여러 번 지정하면 순서대로)
-  python scripts/bitgil_tutor.py --pdf docs/demo/모의고사_샘플.pdf \
-    --ask "2번 읽어줘" --ask "선택지 다시" --ask "도표 설명해줘"
+```bash
+# 키 없이 (demo 프로바이더 — 도표 설명만 캔에 담긴 문장이고 흐름은 실제와 같다)
+python web/server.py --profile learning-chart
+#  → http://localhost:8765/tutor.html — 시험지를 끌어다 놓고 말하거나 입력한다
 
-  # 실 모델로 (도표 설명·물어보기만 왕복한다)
-  python scripts/bitgil_tutor.py --pdf 모의고사.pdf --provider bedrock --profile learning-chart
-  ```
+# 실 모델로 도표까지
+BITGIL_AWS_REGION=ap-northeast-2 python web/server.py --provider bedrock --profile learning-chart
+```
+
+이 화면은 **secure context가 필요 없다** — `getDisplayMedia`를 쓰지 않으므로 다른 기기에서
+`http://<pi-ip>:8765/tutor.html`로 열어도 동작한다(음성 입력만 브라우저 정책에 따라 제한될 수 있음).
+
+- **기대/합격 기준(브라우저):**
+  - 시험지를 올리면 첫 응답이 **개요**이고 화면 태그가 **`시험지 원문`**(초록), 낭독도
+    "시험지 원문."으로 시작한다. 파일명이 아니라 **인쇄된 머리글**을 읽는다.
+  - 문항 번호 칩이 생기고, `2번` 칩/버튼/음성/타이핑이 **모두 같은 문장으로** 서버에 간다
+    (경로가 갈라지면 규칙이 어긋난다).
+  - `도표 설명해줘` → 태그가 **`모델의 설명`**(파랑) + 경과 시간, 원문에 없는 숫자가 나오면
+    `확인 필요:` 고지가 말풍선에 남는다.
+  - `복습 노트 저장` → `bitgil-review.md` 다운로드, 기계생성 고지 포함, 도표 설명은 **한 번만**.
+  - `시험지 닫기` → 업로드본이 디스크에서 지워지고, 이후 말하면 "먼저 시험지 PDF를 올려
+    주세요"가 **음성으로** 나온다(상태코드가 아니라 문장).
+  - PDF 아닌 파일·스캔 PDF → 거절 문장이 화면에 남고 낭독된다.
+  - 자동 검증: `tests/test_web_server.py`의 `/tutor/*` 15개(실제 HTTP로 구동).
+
+#### S9-B — 터미널 REPL (`scripts/bitgil_tutor.py`, 개발·스크립트용)
+
+```bash
+# 대화형 — 열면 개요를 말하고 프롬프트에서 기다린다
+python scripts/bitgil_tutor.py --pdf docs/demo/모의고사_샘플.pdf
+
+# 스크립트로 한 번에 (여러 번 지정하면 순서대로)
+python scripts/bitgil_tutor.py --pdf docs/demo/모의고사_샘플.pdf \
+  --ask "2번 읽어줘" --ask "선택지 다시" --ask "도표 설명해줘"
+
+# 실 모델로 (도표 설명·물어보기만 왕복한다)
+python scripts/bitgil_tutor.py --pdf 모의고사.pdf --provider bedrock --profile learning-chart
+```
 
 - **기대/합격 기준:**
   - **첫 응답이 개요**이고 `[원문]`으로 표시되며, **프로바이더 호출이 0회**다(열기만 해도
-    비용·환각이 생기면 안 된다). 파일명을 읽지 않고 시험지에 **인쇄된 머리글**을 읽는다.
+    비용·환각이 생기면 안 된다).
   - 개요에 문항 수·번호 범위, **도표가 딸린 문항 번호**, 선택지를 못 읽은 문항 번호가 있고,
     마지막이 질문으로 끝나 **학생의 말을 기다린다**(먼저 해설을 시작하지 않는다).
   - `2번 읽어줘` → `[원문 0.0초]`(왕복 없음), 지문 + 선택지 5개.
@@ -234,6 +262,9 @@ python scripts/bitgil_demo.py --provider omniroute --list-routes
 - `/configure` 미존재 프로파일 → HTTP 400(크래시 금지).
 - 경로 탐색(`/../server.py`, `../../etc/passwd`) → 403/404(정적 디렉터리 밖 접근 차단).
 - `/narrate/stream` → 문장 단위 텍스트 스트림.
+- `/tutor/*`: 시험지 없이 말하기·복습 노트 요청 → 400 + **조치 가능한 한국어 문장**(`text`
+  필드, 브라우저가 이걸 읽는다). PDF 아님·빈 업로드·스캔 PDF → 400. 업로드 파일명의 경로
+  조각(`../../etc/passwd.pdf`)은 제거. 시험지를 닫거나 새로 열면 **이전 업로드본 삭제**.
 
 ## 4. QA 실행 결과 (최신 라운드)
 
@@ -271,10 +302,13 @@ Pi에서 `demo` 프로바이더로 실행한 결과.
 
 ## 5. 아직 검증 못 한 것 (실기기 필요)
 
-- **브라우저에서 시험지를 첨부해 대화하는 화면** — 아직 없는 기능이다. 코어
-  (`tutor.TutorSession`)는 UI와 무관하게 완성돼 있지만, 웹으로 노출하려면 업로드 엔드포인트
-  (PDF 수신 → `load_pdf` → 세션 보관)와 대화 엔드포인트(`respond`), 그리고 출처 표시
-  (`원문`/`모델`)를 화면에도 남기는 UI가 필요하다. 지금 테스트 경로는 S9의 터미널 REPL이다.
+- **스크린리더로 시험지 대화 화면을 실제로 써 보기** — `tutor.html`은 Pi의 브라우저와
+  `tests/test_web_server.py`로 검증했지만, NVDA/VoiceOver를 켠 상태에서 aria-live 갱신과
+  브라우저 자체 낭독(`speechSynthesis`)이 **겹쳐 읽히지 않는지**는 실기기 확인이 필요하다
+  (겹치면 낭독 체크박스를 끄고 스크린리더에 맡기는 쪽이 맞다).
+- **브라우저 음성 입력** — `webkitSpeechRecognition`은 Chrome 계열에만 있고 마이크 권한이
+  필요하다. Firefox·권한 거부 시 버튼이 사라지고 타이핑으로 전부 되는지는 확인했으나,
+  한국어 인식 정확도는 실사용 측정 대상이다.
 - NVDA 실제 음성 출력·SpeechBridge 끼어들기 실배선(Windows 전용).
 - OS 이벤트 소스(UIA/토스트)로 트리아지를 실제 구동(현재는 `/triage` curl/향후 소스로만).
 - 실 LLM 해설 **품질**(정확도·환각률) — [user-testing.md](user-testing.md)의 오류

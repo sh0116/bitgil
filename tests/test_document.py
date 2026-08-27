@@ -1,9 +1,8 @@
 """Tests for 문서 직독 — PDF 텍스트 레이어 추출, 문항 분할, 페이지 렌더링.
 
-All offline. The PDF fixture is built by hand (a real text layer with correct xref
-offsets) rather than with a generator dependency, and the scanned-PDF path uses a
-Pillow-rendered PDF — which genuinely has no text layer, so it exercises the real
-rejection rather than a mocked one.
+All offline. The PDF fixtures live in `pdf_fixture.py` (shared with the web-server
+tests): a hand-built text layer, and a Pillow-rendered PDF that genuinely has no
+text layer, so the scanned-PDF rejection is exercised for real rather than mocked.
 """
 
 import io
@@ -11,6 +10,8 @@ import shutil
 
 import pytest
 from PIL import Image
+from pdf_fixture import pdf_with_text as _pdf_with_text
+from pdf_fixture import scanned_pdf as _scanned_pdf
 
 from bitgil_core.document import (
 	ExamDocument,
@@ -22,37 +23,6 @@ from bitgil_core.document import (
 )
 
 pytest.importorskip("pypdf")
-
-
-def _pdf_with_text(lines) -> bytes:
-	"""Minimal single-page PDF carrying a real text layer."""
-	drawn = "".join(f"({line}) Tj T*\n" for line in lines)
-	content = "BT /F1 12 Tf 72 720 Td 14 TL\n" + drawn + "ET"
-	objs = [
-		"<</Type/Catalog/Pages 2 0 R>>",
-		"<</Type/Pages/Kids[3 0 R]/Count 1>>",
-		"<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R"
-		"/Resources<</Font<</F1 5 0 R>>>>>>",
-		f"<</Length {len(content)}>>\nstream\n{content}\nendstream",
-		"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>",
-	]
-	out = "%PDF-1.4\n"
-	offsets = []
-	for i, body in enumerate(objs, start=1):
-		offsets.append(len(out))
-		out += f"{i} 0 obj\n{body}\nendobj\n"
-	xref = len(out)
-	out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n"
-	out += "".join(f"{o:010d} 00000 n \n" for o in offsets)
-	out += f"trailer\n<</Size {len(objs) + 1}/Root 1 0 R>>\nstartxref\n{xref}\n%%EOF\n"
-	return out.encode("latin-1")
-
-
-def _scanned_pdf() -> bytes:
-	"""A PDF whose glyphs are pixels — i.e. no text layer at all."""
-	buf = io.BytesIO()
-	Image.new("RGB", (300, 400), "white").save(buf, format="PDF")
-	return buf.getvalue()
 
 
 # --- 문항 분할 ----------------------------------------------------------------

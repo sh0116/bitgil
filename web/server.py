@@ -9,6 +9,12 @@ lifting by reusing the EXACT platform-agnostic core the NVDA add-on uses:
     POST /narrate  (image bytes)  ->  ChangeDetector gate  ->  NarrationEngine
                                   ->  {"changed": bool, "text": str, "reason": str}
 
+It also hosts the second input path — a whole exam paper instead of a live screen
+(docs/qa.md S9, core/bitgil_core/tutor.py):
+
+    POST /tutor/open (PDF bytes) ->  load_pdf  ->  overview, spoken, no model call
+    POST /tutor/say  ({"text"})  ->  TutorSession.respond  ->  {text, grounded, ...}
+
 No OS-specific accessibility integration — proving the platform-agnostic baseline.
 It bundles a keyless "demo" provider so the whole capture -> gate -> narrate -> speak
 loop is runnable anywhere (including this Raspberry Pi) without an API key; point it
@@ -28,8 +34,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
+import tempfile
 import threading
+import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # Run from a checkout without installing bitgil-core.
@@ -37,15 +47,25 @@ _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_REPO, "core"))
 
 from bitgil_core.change_detect import ChangeDetector  # noqa: E402
+from bitgil_core.document import load_pdf  # noqa: E402
 from bitgil_core.engine import NarrationEngine  # noqa: E402
 from bitgil_core.goal import GoalTracker  # noqa: E402
 from bitgil_core.profiles import Profile, load_builtin_profiles  # noqa: E402
 from bitgil_core.providers import build_provider  # noqa: E402
 from bitgil_core.providers.base import VisionProvider  # noqa: E402
+from bitgil_core.review import ReviewLog  # noqa: E402
 from bitgil_core.triage import DesktopEvent, InterruptTriage  # noqa: E402
+from bitgil_core.tutor import TutorSession  # noqa: E402
 
 _STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 _PROFILES = os.path.join(_REPO, "profiles")
+
+
+def _profile_or(name: str, fallback: Profile) -> Profile:
+	"""Load a named profile pack, or fall back — never exits (unlike `_load_profile`)."""
+	if os.path.isdir(_PROFILES):
+		return load_builtin_profiles(_PROFILES).get(name, fallback)
+	return fallback
 
 
 def _load_profile(name: str) -> Profile:
@@ -56,6 +76,14 @@ def _load_profile(name: str) -> Profile:
 	if name == "general":
 		return Profile(name="general", system_prompt="화면을 간결히 설명하세요. 이전 해설이 있으면 무엇이 달라졌는지 중심으로 말하세요.")
 	sys.exit(f"error: profile '{name}' not found in {_PROFILES}")
+
+
+class _BadRequest(Exception):
+	"""A malformed request the handler answers with HTTP 400.
+
+	낭독 대상이 사용자다 — the message travels to the browser and is *spoken*, so every
+	`raise _BadRequest(...)` below carries one actionable Korean sentence, not a code.
+	"""
 
 
 class Bitgil:
@@ -84,6 +112,9 @@ class Bitgil:
 		)
 		# Same provider drives event triage (ambient-copilot path).
 		self.triage = InterruptTriage(self.provider)
+		# 문서 직독 모드는 도표 설명에서만 비전을 쓰므로, 보간 금지 하드 규칙이 있는
+		# learning-chart 프로파일을 씁니다(없는 설치에서는 활성 프로파일로 폴백).
+		self.tutor = TutorHost(self.provider, _profile_or("learning-chart", profile))
 		self.goal = GoalTracker()
 		self._lock = threading.Lock()
 		self._apply_profile(_load_profile(profile_name))
@@ -107,6 +138,7 @@ class Bitgil:
 		return {
 			"provider": self.provider_name,
 			"profile": self.profile.name,
+			"tutor_profile": self.tutor.profile.name,
 			"profiles": self._profile_names(),
 			"density": self.profile.narration_density,
 			"interval": self.profile.observe_interval,
@@ -178,8 +210,143 @@ class Bitgil:
 		}
 
 
-class _BadRequest(Exception):
-	"""A malformed request the handler should answer with HTTP 400."""
+def _reply_json(reply) -> dict:
+	"""A TutorReply on the wire. `grounded` is the whole point of shipping it.
+
+	The browser must be able to *show and say* which of two sentence kinds it just
+	received — the exam paper's own words, or the model's. Dropping this field would
+	make the web client less honest than the CLI (`scripts/bitgil_tutor.py::_print`).
+	"""
+	return {
+		"text": reply.text,
+		"grounded": reply.grounded,
+		"unsupported": list(reply.unsupported or []),
+	}
+
+
+class TutorHost:
+	"""The document-tutor session behind `/tutor/*` — one open exam paper at a time.
+
+	Two things are worth explaining here.
+
+	**Why the upload is written to a temp file.** 도표 렌더링(`document.render_page`)은
+	poppler `pdftoppm`을 **파일 경로로** 호출하므로 바이트만 들고 있을 수 없습니다. 그래서
+	업로드본을 임시 디렉터리에 두고, 시험지를 닫거나 다른 시험지를 열 때 **지웁니다** — 화면
+	프레임을 디스크에 남기지 않는 것과 같은 규칙입니다(시험지에는 학생 이름이 적혀 있을 수 있습니다).
+
+	**Why the tutor gets its own engine.** 화면 해설 파이프라인과 상태(최근 해설 문맥,
+	변화 감지)를 공유하면 시험지 대화가 화면 해설 문맥에 섞여 들어갑니다. 프로바이더만 공유하고
+	엔진·복습 노트는 세션마다 새로 만듭니다.
+	"""
+
+	def __init__(self, provider: VisionProvider, profile: Profile):
+		self.provider = provider
+		self.profile = profile
+		self.session: TutorSession = None
+		self.review: ReviewLog = None
+		self.name = ""
+		self._dir = ""
+		self._lock = threading.Lock()
+
+	# ---- 열기 / 닫기 ---------------------------------------------------------------
+
+	def open_document(self, data: bytes, name: str) -> dict:
+		"""업로드된 PDF를 열고 **개요를 돌려줍니다**(모델 호출 없음).
+
+		거절은 여기서 끝냅니다 — 스캔 PDF를 조용히 비전 경로로 흘리면 사용자는 근거 있는
+		낭독과 모델 추측을 구분할 수 없습니다(`document.load_pdf` 참고).
+		"""
+		if not data:
+			raise _BadRequest("PDF 파일을 선택해 주세요.")
+		if not data.startswith(b"%PDF"):
+			raise _BadRequest(
+				"PDF 파일만 읽을 수 있습니다. 시험지를 PDF로 저장해서 올려 주세요."
+			)
+		safe = _safe_name(name) or "시험지.pdf"
+		tmpdir = tempfile.mkdtemp(prefix="bitgil-tutor-")
+		path = os.path.join(tmpdir, safe)
+		try:
+			with open(path, "wb") as f:
+				f.write(data)
+			document = load_pdf(path)
+		except (ValueError, RuntimeError, OSError) as e:
+			shutil.rmtree(tmpdir, ignore_errors=True)
+			raise _BadRequest(str(e)) from None
+
+		with self._lock:
+			self._forget()
+			self._dir = tmpdir
+			self.name = safe
+			self.review = ReviewLog(
+				title=safe,
+				clock=lambda: time.strftime("%H:%M:%S"),
+				provider=self.provider.name,
+				model=getattr(self.provider, "model", ""),
+			)
+			# 엔진에는 노트를 주지 않습니다 — 기록은 `TutorSession`이 응답 단위로 합니다.
+			# 둘 다 적으면 도표 설명이 두 번 남고(엔진의 원본 + 세션의 고지 붙은 문장),
+			# 같은 문장을 두 번 들은 것이 학습 기록상 두 번 일어난 일은 아닙니다.
+			engine = NarrationEngine(self.provider, self.profile)
+			self.session = TutorSession(document, engine, review_log=self.review)
+			reply = self.session.overview()
+			return {
+				"name": safe,
+				"title": document.title,
+				"pages": len(document.pages),
+				"questions": [q.number for q in document.questions],
+				"figures": document.figure_numbers(),
+				**_reply_json(reply),
+			}
+
+	def close(self) -> dict:
+		with self._lock:
+			self._forget()
+		return {"closed": True}
+
+	def _forget(self) -> None:
+		"""세션과 업로드본을 버립니다. 호출자가 락을 잡고 있어야 합니다."""
+		if self._dir:
+			shutil.rmtree(self._dir, ignore_errors=True)
+		self._dir = ""
+		self.name = ""
+		self.session = None
+		self.review = None
+
+	# ---- 대화 --------------------------------------------------------------------
+
+	def say(self, utterance: str) -> dict:
+		"""학생의 한 줄을 `TutorSession.respond`로 — 라우팅 규칙은 CLI와 같은 코드입니다."""
+		with self._lock:
+			if self.session is None:
+				raise _BadRequest(
+					"먼저 시험지 PDF를 올려 주세요. '시험지 열기'에서 파일을 선택하면 됩니다."
+				)
+			started = time.monotonic()
+			try:
+				reply = _reply_json(self.session.respond(utterance))
+			except Exception as e:
+				# 프로바이더·poppler 실패가 그대로 음성으로 읽히므로, 상태코드가 아니라
+				# 무엇을 하면 되는지가 담긴 문장을 올립니다(`/narrate`와 같은 규약).
+				reply = {"text": f"오류: {e}", "grounded": False, "unsupported": []}
+			current = self.session.current
+			return {
+				**reply,
+				"elapsed": round(time.monotonic() - started, 2),
+				"current": current.number if current else None,
+			}
+
+	def review_markdown(self) -> str:
+		with self._lock:
+			if self.review is None:
+				raise _BadRequest("아직 저장할 대화가 없습니다. 시험지를 열고 대화해 주세요.")
+			return self.review.to_markdown()
+
+
+def _safe_name(name: str) -> str:
+	"""업로드된 파일명을 파일 이름 한 조각으로 축소(경로 탈출·제어문자 차단, 한글 유지)."""
+	base = os.path.basename((name or "").replace("\\", "/")).strip()
+	cleaned = "".join(c for c in base if c.isprintable() and c not in '/:*?"<>|')
+	return cleaned.lstrip(".")[:80]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -214,10 +381,25 @@ class Handler(BaseHTTPRequestHandler):
 		self.wfile.write(body)
 
 	def do_GET(self):  # noqa: N802 (http.server API)
-		if self.path == "/config":
+		path = self.path.partition("?")[0]
+		if path == "/config":
 			self._send_json(self.bitgil.config())
 			return
-		rel = "index.html" if self.path in ("/", "") else self.path.lstrip("/")
+		if path == "/tutor/review":
+			try:
+				body = self.bitgil.tutor.review_markdown().encode("utf-8")
+			except _BadRequest as e:
+				self._send_json({"error": str(e), "text": str(e)}, status=400)
+				return
+			self.send_response(200)
+			self.send_header("Content-Type", "text/markdown; charset=utf-8")
+			# 복습 노트는 학습물로 저장되는 파일이므로 다운로드로 내보냅니다(고지·출처 포함).
+			self.send_header("Content-Disposition", 'attachment; filename="bitgil-review.md"')
+			self.send_header("Content-Length", str(len(body)))
+			self.end_headers()
+			self.wfile.write(body)
+			return
+		rel = "index.html" if path in ("/", "") else path.lstrip("/")
 		# Prevent path traversal; serve only from *inside* the static dir. The
 		# separator on the prefix matters — a bare startswith(_STATIC) would also
 		# accept a sibling like "<static>-secrets/".
@@ -243,8 +425,35 @@ class Handler(BaseHTTPRequestHandler):
 		except _BadRequest as e:
 			self._send_json({"error": str(e)}, status=400)
 			return
+		path, _, query = self.path.partition("?")
 
-		if self.path == "/narrate":
+		if path == "/tutor/open":
+			# 파일명은 쿼리로 받습니다(HTTP 헤더는 latin-1이라 한글 파일명이 깨집니다).
+			name = urllib.parse.parse_qs(query).get("name", [""])[0]
+			try:
+				self._send_json(self.bitgil.tutor.open_document(body, name))
+			except _BadRequest as e:
+				# error(개발자용)와 text(낭독용)를 함께 — 클라이언트는 text를 읽습니다.
+				self._send_json({"error": str(e), "text": str(e)}, status=400)
+			return
+
+		if path == "/tutor/say":
+			try:
+				data = json.loads(body or b"{}")
+			except ValueError:
+				self._send_json({"error": "invalid json"}, status=400)
+				return
+			try:
+				self._send_json(self.bitgil.tutor.say(str(data.get("text", ""))))
+			except _BadRequest as e:
+				self._send_json({"error": str(e), "text": str(e)}, status=400)
+			return
+
+		if path == "/tutor/close":
+			self._send_json(self.bitgil.tutor.close())
+			return
+
+		if path == "/narrate":
 			if not body:
 				self._send_json({"error": "empty body"}, status=400)
 				return
@@ -254,11 +463,11 @@ class Handler(BaseHTTPRequestHandler):
 				self._send_json({"changed": True, "text": f"오류: {e}", "reason": "error"})
 			return
 
-		if self.path == "/narrate/stream":
+		if path == "/narrate/stream":
 			self._stream_narrate(body)
 			return
 
-		if self.path == "/triage":
+		if path == "/triage":
 			try:
 				data = json.loads(body or b"{}")
 			except ValueError:
@@ -267,7 +476,7 @@ class Handler(BaseHTTPRequestHandler):
 			self._send_json(self.bitgil.triage_event(data))
 			return
 
-		if self.path == "/configure":
+		if path == "/configure":
 			try:
 				data = json.loads(body or b"{}")
 			except ValueError:
